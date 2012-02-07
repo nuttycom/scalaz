@@ -7,6 +7,7 @@ import Enumeratee2T._
 import scala.annotation.tailrec
 import scalaz.syntax.Syntax.bind._
 import scalaz.syntax.Syntax.order._
+import scalaz.syntax.Syntax.semigroup._
 
 trait ForallM[P[_[_]]] {
   def apply[F[_]: Monad]: P[F]
@@ -162,6 +163,19 @@ trait EnumeratorPFunctions {
       case x :: xs => mergeOne(x, xs) 
       case Nil => empty[X, E, F]
     }   
+  }
+}
+
+trait EnumeratorPInstances {
+  implicit def enumeratorPMonoid[X, E, F[_]]: Monoid[EnumeratorP[X, E, F]] = new Monoid[EnumeratorP[X, E, F]] {
+    def zero = EnumeratorP.empty[X, E, F]
+    def append(f1: EnumeratorP[X, E, F], f2: => EnumeratorP[X, E, F]) = 
+      new EnumeratorP[X, E, F] {
+        def apply[G[_]](implicit MO: MonadPartialOrder[G, F]) = {
+          import MO._
+          EnumeratorT.enumeratorTMonoid[X, E, G].append(f1[G], f2[G])
+        }
+      }
   }
 }
 
