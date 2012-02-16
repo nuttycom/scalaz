@@ -91,10 +91,9 @@ trait Enumeratee2TFunctions {
       }
     }
 
-  def mergeI[X, B: Order, E <: List[B], F[_]: Monad]: Enumeratee2T[X, E, E, E, F] = 
+  def mergeI[X, B, E, F[_]](implicit M: Monad[F], ord: Order[B], ev: E =:= List[B], ev2: List[B] =:= E): Enumeratee2T[X, E, E, E, F] = 
     new Enumeratee2T[X, E, E, E, F] {
       type Surplus = Either[E,E]
-
 
       def apply[A] = {
         def step(s: StepM[A], previousSurplus: Option[Surplus]): IterateeT[X, E, IterateeM, StepM[A]] = {
