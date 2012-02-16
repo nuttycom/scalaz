@@ -91,37 +91,64 @@ trait Enumeratee2TFunctions {
       }
     }
 
-  def mergeI[X, E: Order, F[_]: Monad]: Enumeratee2T[X, E, E, E, F] =
+  def mergeI[X, B: Order, E <: List[B], F[_]: Monad]: Enumeratee2T[X, E, E, E, F] = 
     new Enumeratee2T[X, E, E, E, F] {
+      type Surplus = Either[E,E]
+
+
       def apply[A] = {
-        def step(s: StepM[A]): IterateeT[X, E, IterateeM, StepM[A]] = 
+        def step(s: StepM[A], previousSurplus: Option[Surplus]): IterateeT[X, E, IterateeM, StepM[A]] = {
+          def mergeChunks(contf: Input[E] => IterateeT[X,E,F,A], left: Option[E], right: Option[E]): IterateeT[X, E, IterateeM, StepM[A]] = {
+            val (merged, surplus) = (left, right) match {
+              case (Some(l), Some(r)) => {
+                def innerMerge(l: E, r: E, acc: E): (Option[E], Option[Surplus]) = (l.headOption, r.headOption) match {
+                  case (Some(x), Some(y)) if x < y => innerMerge(l.tail, r, acc :+ x)
+                  case (Some(x), Some(y))          => innerMerge(l, r.tail, acc :+ y)
+                  case (None, None)                => (Some(acc), None) // Technically this should only happen if the initial chunks are both Nil
+                  case (None, _)                   => (Some(acc), Some(Right(r)))
+                  case (_, None)                   => (Some(acc), Some(Left(l)))
+                }
+
+                innerMerge(l, r, List.empty[B])
+              }
+              case (None, None) => (None, None)
+              case (None, r) => (r, None)
+              case (l, None) => (l, None)
+            }
+
+            iterateeT[X, E, IterateeM, StepM[A]](contf(merged.map(elInput(_)).getOrElse(eofInput)) >>== (step(_, surplus).value))
+          }
+
           s.fold[IterateeT[X, E, IterateeM, StepM[A]]](
             cont = contf => {
-              for {
-                leftOpt  <- peek[X, E, IterateeM]
-                rightOpt <- lift[X, E, E, F, Option[E]](peek[X, E, F])
-                a <- (leftOpt, rightOpt) match {
-                  case (left, Some(right)) if left.forall(_ > right) =>
-                    for {
-                      _ <- lift[X, E, E, F, Option[E]](head[X, E, F])
-                      a <- iterateeT[X, E, IterateeM, StepM[A]](contf(elInput(right)) >>== (step(_).value))
-                    } yield a
-
-                  case (Some(left), _) => 
-                    for {
-                      _ <- head[X, E, IterateeM]
-                      a <- iterateeT[X, E, IterateeM, StepM[A]](contf(elInput(left)) >>== (step(_).value))
-                    } yield a
-
-                  case _ => done[X, E, IterateeM, StepM[A]](s, eofInput)
+              previousSurplus match {
+                case Some(Left(left)) => {
+                  for {
+                    rightOpt <- lift[X, E, E, F, Option[E]](head[X, E, F])
+                    a        <- mergeChunks(contf, Some(left), rightOpt)
+                  } yield a
                 }
-              } yield a
+                case Some(Right(right)) => {
+                  for {
+                    leftOpt  <- head[X, E, IterateeM]
+                    a        <- mergeChunks(contf, leftOpt, Some(right))
+                  } yield a
+                }
+                case None => {
+                  for {
+                    leftOpt  <- head[X, E, IterateeM]
+                    rightOpt <- lift[X, E, E, F, Option[E]](head[X, E, F])
+                    a        <- mergeChunks(contf, leftOpt, rightOpt)
+                  } yield a
+                }
+              }
             },
             done = (a, r) => done[X, E, IterateeM, StepM[A]](sdone(a, if (r.isEof) eofInput else emptyInput), if (r.isEof) eofInput else emptyInput),
             err  = x => err(x)
           )
+        }
 
-        step
+        step(_, None)
       }
     }
 
