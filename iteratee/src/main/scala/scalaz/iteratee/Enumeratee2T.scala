@@ -91,7 +91,8 @@ trait Enumeratee2TFunctions {
       }
     }
 
-  def mergeI[X, B, E, F[_]](implicit M: Monad[F], ord: Order[B], ev: E =:= List[B], ev2: List[B] =:= E): Enumeratee2T[X, E, E, E, F] = 
+  def mergeI[X, B, F[_]](implicit M: Monad[F], ord: Order[B]): Enumeratee2T[X, List[B], List[B], List[B], F] = {
+    type E = List[B]
     new Enumeratee2T[X, E, E, E, F] {
       type Surplus = Either[E,E]
 
@@ -150,6 +151,7 @@ trait Enumeratee2TFunctions {
         step(_, None)
       }
     }
+  }
 
   def parFoldI[X, J, K, F[_]](f: K => J)(implicit order: (J, K) => Ordering, m: Monoid[J], M: Monad[F]): Enumeratee2T[X, J, K, J, F] =
     new Enumeratee2T[X, J, K, J, F] {

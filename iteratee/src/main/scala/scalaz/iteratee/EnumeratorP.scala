@@ -74,8 +74,8 @@ abstract class EnumeratorP[X, E, F[_]] { self =>
   def join(other: EnumeratorP[X, E, F])(implicit order: Order[E], m: Monad[F]): EnumeratorP[X, (E, E), F] =
     EnumeratorP.joinE[X, E, E, F](m, order.order).apply(self, other)
 
-  def merge[B](other: EnumeratorP[X, E, F])(implicit o: Order[B], m: Monad[F], ev: E =:= List[B], ev2: List[B] =:= E) = 
-    EnumeratorP.mergeE[X, B, E, F].apply(self, other)
+  def merge[B](other: EnumeratorP[X, E, F])(implicit o: Order[B], m: Monad[F], ev: E =:= List[B]) = 
+    EnumeratorP.mergeE[X, B, F].apply(self.map(ev), other.map(ev))
 }
 
 trait EnumeratorPFunctions {
@@ -128,13 +128,15 @@ trait EnumeratorPFunctions {
     }
   }
 
-  def mergeE[X, B, E, F[_]](implicit o: Order[B], fm: Monad[F], ev: E =:= List[B], ev2: List[B] =:= E) = liftE2[X, E, E, E, F] { 
+  def mergeE[X, B, F[_]](implicit o: Order[B], fm: Monad[F]) = liftE2[X, List[B], List[B], List[B], F] { 
+    type E = List[B]
     new ForallM[({type λ[β[_]] = Enumeratee2T[X, E, E, E, β]})#λ] {
-      def apply[G[_]: Monad] = mergeI[X, B, E, G]
+      def apply[G[_]: Monad] = mergeI[X, B, G]
     }
   }
 
-  def mergeAll[X, B, E, F[_]](enumerators: EnumeratorP[X, E, F]*)(implicit o: Order[B], fm: Monad[F], ev: E =:= List[B], ev2: List[B] =:= E): EnumeratorP[X, E, F] = { 
+  def mergeAll[X, B, F[_]](enumerators: EnumeratorP[X, List[B], F]*)(implicit o: Order[B], fm: Monad[F]): EnumeratorP[X, List[B], F] = { 
+    type E = List[B]
     @tailrec def mergeOne(e: EnumeratorP[X, E, F], es: List[EnumeratorP[X, E, F]]): EnumeratorP[X, E, F] = es match {
       case x :: xs => mergeOne(e merge x, xs) 
       case Nil => e
