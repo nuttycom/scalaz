@@ -59,13 +59,13 @@ class Enumeratee2TTest extends Spec {
   }
 
   "merge sorted iteratees" in {
-    val enum  = enumStream[Unit, Int, IterateeM](Stream(1, 3, 5)) 
-    val enum2 = enumStream[Unit, Int, Id](Stream(2, 3, 3, 4, 5, 6)) 
+    val enum  = enumStream[Unit, List[Int], ({ type λ[A] = IterateeT[Unit, List[Int], Id, A] })#λ](Stream(List(1, 3, 5)))
+    val enum2 = enumStream[Unit, List[Int], Id](Stream(List(2, 3, 3), List(4, 5, 6)))
 
-    val outer = mergeI[Unit, Int, Id].apply(consume[Unit, Int, Id, List].value) &= enum
+    val outer = mergeI[Unit, Int, Id].apply(consume[Unit, List[Int], Id, List].value) &= enum
     val inner = outer.run(_ => sys.error("...")) &= enum2
     
-    inner.run(_ => sys.error("...")).pointI.run(_ => sys.error("...")) must be_===(List(1, 2, 3, 3, 3, 4, 5, 5, 6))
+    inner.run(_ => sys.error("...")).pointI.run(_ => sys.error("...")).flatten must be_===(List(1, 2, 3, 3, 3, 4, 5, 5, 6))
   }
 
   "cross the first element with all of the second iteratee's elements" in {

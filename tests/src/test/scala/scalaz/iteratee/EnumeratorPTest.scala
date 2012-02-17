@@ -68,10 +68,10 @@ class EnumeratorPTest extends Spec {
   }
 
   "mergeAll" in {
-    val enum1 = enumPStream[Unit, Int, Id](Stream(1, 5, 9))
-    val enum2 = enumPStream[Unit, Int, Id](Stream(2, 3, 6))
-    val enum3 = enumPStream[Unit, Int, Id](Stream(4, 7, 8))
-    (consume[Unit, Int, Id, List] &= mergeAll(enum1, enum2, enum3).apply[Id]).runOrZero must be_===(List(1, 2, 3, 4, 5, 6, 7, 8, 9))
+    val enum1 = enumPStream[Unit, List[Int], Id](Stream(List(1, 5, 9)))
+    val enum2 = enumPStream[Unit, List[Int], Id](Stream(List(2, 3, 6)))
+    val enum3 = enumPStream[Unit, List[Int], Id](Stream(List(4, 7, 8)))
+    (consume[Unit, List[Int], Id, List] &= mergeAll(enum1, enum2, enum3).apply[Id]).runOrZero.flatten must be_===(List(1, 2, 3, 4, 5, 6, 7, 8, 9))
   }
 }
 
