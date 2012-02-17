@@ -71,10 +71,10 @@ abstract class EnumeratorP[X, E, F[_]] { self =>
       }
     }
 
-  def join(other: EnumeratorP[X, E, F])(implicit order: Order[E], m: Monad[F]): EnumeratorP[X, (E, E), F] =
-    EnumeratorP.joinE[X, E, E, F](m, order.order).apply(self, other)
+  def join[B](other: EnumeratorP[X, E, F])(implicit order: Order[B], m: Monad[F], ev: E =:= Vector[B]): EnumeratorP[X, Vector[(B, B)], F] =
+    EnumeratorP.joinE[X, B, B, F](m, order.order).apply(self.map(ev), other.map(ev))
 
-  def merge[B](other: EnumeratorP[X, E, F])(implicit o: Order[B], m: Monad[F], ev: E =:= List[B]) = 
+  def merge[B](other: EnumeratorP[X, E, F])(implicit o: Order[B], m: Monad[F], ev: E =:= Vector[B]) = 
     EnumeratorP.mergeE[X, B, F].apply(self.map(ev), other.map(ev))
 }
 
@@ -116,27 +116,27 @@ trait EnumeratorPFunctions {
     }
   }
 
-  def cogroupE[X, J, K, F[_]](implicit M: Monad[F], ord: (J, K) => Ordering) = liftE2[X, J, K, Either3[J, (J, K), K], F] {
-    new ForallM[({type λ[β[_]] = Enumeratee2T[X, J, K, Either3[J, (J, K), K], β]})#λ] {
+  def cogroupE[X, J, K, F[_]](implicit M: Monad[F], ord: (J, K) => Ordering) = liftE2[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], F] {
+    new ForallM[({type λ[β[_]] = Enumeratee2T[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], β]})#λ] {
       def apply[G[_]: Monad] = cogroupI[X, J, K, G]
     }
   }
 
-  def joinE[X, J, K, F[_]](implicit M: Monad[F], ord: (J, K) => Ordering) = liftE2[X, J, K, (J, K), F] { 
-    new ForallM[({type λ[β[_]] = Enumeratee2T[X, J, K, (J, K), β]})#λ] {
+  def joinE[X, J, K, F[_]](implicit M: Monad[F], ord: (J, K) => Ordering) = liftE2[X, Vector[J], Vector[K], Vector[(J, K)], F] { 
+    new ForallM[({type λ[β[_]] = Enumeratee2T[X, Vector[J], Vector[K], Vector[(J, K)], β]})#λ] {
       def apply[G[_]: Monad] = joinI[X, J, K, G]
     }
   }
 
-  def mergeE[X, B, F[_]](implicit o: Order[B], fm: Monad[F]) = liftE2[X, List[B], List[B], List[B], F] { 
-    type E = List[B]
+  def mergeE[X, B, F[_]](implicit o: Order[B], fm: Monad[F]) = liftE2[X, Vector[B], Vector[B], Vector[B], F] { 
+    type E = Vector[B]
     new ForallM[({type λ[β[_]] = Enumeratee2T[X, E, E, E, β]})#λ] {
       def apply[G[_]: Monad] = mergeI[X, B, G]
     }
   }
 
-  def mergeAll[X, B, F[_]](enumerators: EnumeratorP[X, List[B], F]*)(implicit o: Order[B], fm: Monad[F]): EnumeratorP[X, List[B], F] = { 
-    type E = List[B]
+  def mergeAll[X, B, F[_]](enumerators: EnumeratorP[X, Vector[B], F]*)(implicit o: Order[B], fm: Monad[F]): EnumeratorP[X, Vector[B], F] = { 
+    type E = Vector[B]
     @tailrec def mergeOne(e: EnumeratorP[X, E, F], es: List[EnumeratorP[X, E, F]]): EnumeratorP[X, E, F] = es match {
       case x :: xs => mergeOne(e merge x, xs) 
       case Nil => e

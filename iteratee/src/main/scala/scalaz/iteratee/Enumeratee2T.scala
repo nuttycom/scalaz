@@ -5,6 +5,8 @@ import effect._
 import Iteratee._
 import Ordering.{EQ, GT, LT}
 
+import scala.collection.immutable.Vector
+
 trait Enumeratee2T[X, J, K, I, F[_]] {
   type IterateeM[α] = IterateeT[X, K, F, α]
   type StepM[α] = StepT[X, I, F, α]
@@ -20,66 +22,85 @@ trait Enumeratee2TFunctions {
   @inline private def lift[X, J, K, F[_]: Monad, A](iter: IterateeT[X, K, F, A]): IterateeT[X, J, ({type λ[α] = IterateeT[X, K, F, α] })#λ, A] =
     IterateeT.IterateeTMonadTrans[X, J].liftM[({type λ[α] = IterateeT[X, K, F, α]})#λ, A](iter)
 
-  def cogroupI[X, J, K, F[_]](implicit M: Monad[F], order: (J, K) => Ordering): Enumeratee2T[X, J, K, Either3[J, (J, K), K], F] =
-    new Enumeratee2T[X, J, K, Either3[J, (J, K), K], F] {
+  def cogroupI[X, J, K, F[_]](implicit M: Monad[F], order: (J, K) => Ordering): Enumeratee2T[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], F] =
+    new Enumeratee2T[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], F] {
+      type Buffer = (Vector[J],Vector[K])
+      type Result = Either3[J,(J,K),K]
+
       def apply[A] = {
-        // Used to 'replay' values from the right for when values from the left order equal
-        // in the pathological case, this degrades to the cartesian product, which will blow up
-        // your memory. Sorry!
-        def advance(j: J, buf: List[K], s: StepT[X, Either3[J, (J, K), K], F, A]): IterateeT[X,Either3[J,(J, K),K],F,A] = {
-          s mapCont { contf =>
-            buf match {
-              case k :: Nil if order(j, k) == EQ => contf(elInput(Middle3((j, k))))
-              case k :: ks  if order(j, k) == EQ => contf(elInput(Middle3((j, k)))) >>== (advance(j, ks, _))
-              case _ => contf(elInput(Left3(j)))
+        /* This method is responsible for grouping two chunks up to the point where either is exhausted.
+         * If sides are exhausted but no more input is available it will completely use the chunks. */
+        def innerGroup(lBuffer: Vector[J], finalLeft: Boolean, rBuffer: Vector[K], finalRight: Boolean, acc: Vector[Result]): (Vector[Result], Option[Buffer]) = {
+          // Pull identical elements off of each side pre-compare
+          def identityPartition[E](elements: Vector[E]): (Vector[E],Vector[E]) = 
+            elements.headOption.map(h => elements.splitAt(elements.lastIndexOf(h) + 1)).getOrElse((Vector(),Vector()))
+
+          val (leftHeads, leftRest) = identityPartition(lBuffer)
+          val (rightHeads, rightRest) = identityPartition(rBuffer)
+
+          // If we have empty "rest" on either side and this isn't the final group (e.g. input available on that side), we've hit a chunk boundary and need more data
+          if ((leftRest.isEmpty && ! finalLeft) || (rightRest.isEmpty && ! finalRight)) {
+            (acc, Some((lBuffer, rBuffer)))
+          } else {
+            (leftHeads.headOption, rightHeads.headOption) match {
+              // If leftHeads and rightHeads are equal, we need a cross-product
+              case (Some(l), Some(r)) if order(l,r) == EQ => innerGroup(leftRest, finalLeft, rightRest, finalRight, acc ++ leftHeads.flatMap(l => rightHeads.map(r => Middle3((l,r)))))
+
+              // If leftHeads is less, accumulate it and recurse on the left remainder and full right side
+              case (Some(l), Some(r)) if order(l,r) == LT => innerGroup(leftRest, finalLeft, rBuffer, finalRight, acc ++ leftHeads.map(Left3(_)))
+
+              // And vice-versa for rightHeads
+              case (Some(l), Some(r))  => innerGroup(lBuffer, finalLeft, rightRest, finalRight, acc ++ rightHeads.map(Right3(_)))
+
+              // When we've expired one side we simply map the whole side. This should only be reached when finalLeft or finalRight are true for both sides
+              case (_, None) => (acc ++ lBuffer.map(Left3(_)), None)
+              case (None, _) => (acc ++ rBuffer.map(Right3(_)), None)
             }
           }
         }
 
-        def step(s: StepM[A], rbuf: List[K]): IterateeT[X, J, IterateeM, StepM[A]] = {
-          s.fold[IterateeT[X, J, IterateeM, StepM[A]]](
+        def outerGroup(left: Option[Vector[J]], right: Option[Vector[K]], b: Buffer): Option[(Vector[Result], Option[Buffer])] = {
+          val (lBuffer, rBuffer) = b
+
+          (left, right) match {
+            case (Some(leftChunk), Some(rightChunk)) => Some(innerGroup(lBuffer ++ leftChunk, false, rBuffer ++ rightChunk, false, Vector()))
+            case (Some(leftChunk), None)             => Some(innerGroup(lBuffer ++ leftChunk, false, rBuffer, true, Vector()))
+            case (None, Some(rightChunk))            => Some(innerGroup(lBuffer, true, rBuffer ++ rightChunk, false, Vector()))
+            // Clean up remaining buffers when we run out of input
+            case (None, None) if ! (lBuffer.isEmpty && rBuffer.isEmpty) => Some(innerGroup(lBuffer, true, rBuffer, true, Vector()))
+            case (None, None)                        => None
+          }
+        }
+
+        def step(s: StepM[A], buffers: Buffer): IterateeT[X, Vector[J], IterateeM, StepM[A]] = {
+          s.fold[IterateeT[X, Vector[J], IterateeM, StepM[A]]](
             cont = contf => {
               for {
-                leftOpt  <- peek[X, J, IterateeM]
-                rightOpt <- lift[X, J, K, F, Option[K]](peek[X, K, F])
-                a <- (leftOpt, rightOpt) match {
-                  case (left, Some(right)) if left.forall(order(_, right) == GT) =>
-                    for {
-                      _ <- lift[X, J, K, F, Option[K]](head[X, K, F])
-                      a <- iterateeT[X, J, IterateeM, StepM[A]](contf(elInput(Right3(right))) >>== (step(_, Nil).value))
-                    } yield a
-
-                  case (Some(left), right) if right.forall(order(left, _) == LT) =>
-                    for {
-                      _ <- head[X, J, IterateeM]
-                      a <- iterateeT[X, J, IterateeM, StepM[A]](advance(left, rbuf, scont(contf)) >>== (step(_, rbuf).value))
-                    } yield a
-
-                  case (Some(left), Some(right)) =>
-                    for {
-                      _ <- lift[X, J, K, F, Option[K]](head[X, K, F])
-                      a <- step(s, if (rbuf.headOption.exists(order(left, _) == EQ)) right :: rbuf else right :: Nil)
-                    } yield a
-
-                  case _ => done[X, J, IterateeM, StepM[A]](s, eofInput)
+                leftOpt  <- head[X, Vector[J], IterateeM]
+                rightOpt <- lift[X, Vector[J], Vector[K], F, Option[Vector[K]]](head[X, Vector[K], F])
+                a <- outerGroup(leftOpt, rightOpt, buffers) match {
+                  case Some((newChunk,newBuffers)) => {
+                    iterateeT[X, Vector[J], IterateeM, StepM[A]](contf(elInput(newChunk)) >>== (step(_, newBuffers.getOrElse((Vector(), Vector()))).value))
+                  }
+                  case None => done[X, Vector[J], IterateeM, StepM[A]](s, eofInput)
                 }
               } yield a
             },
-            done = (a, r) => done[X, J, IterateeM, StepM[A]](sdone(a, if (r.isEof) eofInput else emptyInput), if (r.isEof) eofInput else emptyInput),
-            err  = x => err(x)
+            done = (a, r) => done[X, Vector[J], IterateeM, StepM[A]](sdone(a, if (r.isEof) eofInput else emptyInput), if (r.isEof) eofInput else emptyInput),
+            err  = x => err[X, Vector[J], IterateeM, StepM[A]](x)
           )
         }
 
-        step(_, Nil)
+        step(_, (Vector(),Vector()))
       }
     }
 
-  def joinI[X, J, K, F[_]](implicit M: Monad[F], ord: (J, K) => Ordering): Enumeratee2T[X, J, K, (J, K), F] =
-    new Enumeratee2T[X, J, K, (J, K), F] {
+  def joinI[X, J, K, F[_]](implicit M: Monad[F], ord: (J, K) => Ordering): Enumeratee2T[X, Vector[J], Vector[K], Vector[(J, K)], F] = {
+    new Enumeratee2T[X, Vector[J], Vector[K], Vector[(J, K)], F] {
       def apply[A] = {
-        def cstep(step: StepT[X, (J, K), F, A]): StepT[X, Either3[J, (J, K), K], F, StepT[X, (J, K), F, A]] = step.fold(
-          cont = contf => scont { in: Input[Either3[J, (J, K), K]] =>
-            val nextInput = in.flatMap(_.middleOr(emptyInput[(J, K)]) { elInput(_) })
+        def cstep(step: StepT[X, Vector[(J, K)], F, A]): StepT[X, Vector[Either3[J, (J, K), K]], F, StepT[X, Vector[(J, K)], F, A]] = step.fold(
+          cont = contf => scont { in: Input[Vector[Either3[J, (J, K), K]]] =>
+            val nextInput = in.map(els => els.flatMap(_.middleOr(Option.empty[(J,K)])(Some(_))))
 
             contf(nextInput) >>== (s => cstep(s).pointI)
           },
@@ -87,12 +108,13 @@ trait Enumeratee2TFunctions {
           err  = x => serr(x)
         )
 
-        (step: StepT[X, (J, K), F, A]) => cogroupI.apply(cstep(step)) flatMap { endStep[X, J, K, (J, K), F, A] }
+        (step: StepT[X, Vector[(J, K)], F, A]) => cogroupI.apply(cstep(step)) flatMap { endStep[X, J, K, Vector[(J, K)], F, A] }
       }
     }
+  }
 
-  def mergeI[X, B, F[_]](implicit M: Monad[F], ord: Order[B]): Enumeratee2T[X, List[B], List[B], List[B], F] = {
-    type E = List[B]
+  def mergeI[X, B, F[_]](implicit M: Monad[F], ord: Order[B]): Enumeratee2T[X, Vector[B], Vector[B], Vector[B], F] = {
+    type E = Vector[B]
     new Enumeratee2T[X, E, E, E, F] {
       type Surplus = Either[E,E]
 
@@ -109,7 +131,7 @@ trait Enumeratee2TFunctions {
                   case (_, None)                   => (Some(acc), Some(Left(l)))
                 }
 
-                innerMerge(l, r, List.empty[B])
+                innerMerge(l, r, Vector.empty[B])
               }
               case (None, None) => (None, None)
               case (None, r) => (r, None)
@@ -153,16 +175,16 @@ trait Enumeratee2TFunctions {
     }
   }
 
-  def parFoldI[X, J, K, F[_]](f: K => J)(implicit order: (J, K) => Ordering, m: Monoid[J], M: Monad[F]): Enumeratee2T[X, J, K, J, F] =
-    new Enumeratee2T[X, J, K, J, F] {
+  def parFoldI[X, J, K, F[_]](f: K => J)(implicit order: (J, K) => Ordering, m: Monoid[J], M: Monad[F]): Enumeratee2T[X, Vector[J], Vector[K], Vector[J], F] =
+    new Enumeratee2T[X, Vector[J], Vector[K], Vector[J], F] {
       def apply[A] = {
-        def cstep(step: StepT[X, J, F, A]): StepT[X, Either3[J, (J, K), K], F, StepT[X, J, F, A]]  = step.fold(
-          cont = contf => scont { in: Input[Either3[J, (J, K), K]] =>
-            val nextInput = in map {
+        def cstep(step: StepT[X, Vector[J], F, A]): StepT[X, Vector[Either3[J, (J, K), K]], F, StepT[X, Vector[J], F, A]]  = step.fold(
+          cont = contf => scont { in: Input[Vector[Either3[J, (J, K), K]]] =>
+            val nextInput = in map { _.map {
               case Left3(j) => j
               case Middle3((j, k)) => m.append(j, f(k))
               case Right3(k) => m.zero
-            }
+            }}
 
             contf(nextInput) >>== (s => cstep(s).pointI)
           },
@@ -170,12 +192,12 @@ trait Enumeratee2TFunctions {
           err  = x => serr(x)
         )
 
-        (step: StepT[X, J, F, A]) => cogroupI.apply(cstep(step)) flatMap { endStep[X, J, K, J, F, A] }
+        (step: StepT[X, Vector[J], F, A]) => cogroupI.apply(cstep(step)) flatMap { endStep[X, J, K, Vector[J], F, A] }
       }
     }
 
-  private def endStep[X, J, K, EE, F[_]: Monad, A](sa: StepT[X, Either3[J, (J, K), K], F, StepT[X, EE, F, A]]) = {
-    IterateeT.IterateeTMonadTransT[X, J, ({ type λ[β[_], α] = IterateeT[X, K, β, α] })#λ].liftM(sa.pointI.run(x => err[X, EE, F, A](x).value))
+  private def endStep[X, J, K, EE, F[_]: Monad, A](sa: StepT[X, Vector[Either3[J, (J, K), K]], F, StepT[X, EE, F, A]]) = {
+    IterateeT.IterateeTMonadTransT[X, Vector[J], ({ type λ[β[_], α] = IterateeT[X, Vector[K], β, α] })#λ].liftM(sa.pointI.run(x => err[X, EE, F, A](x).value))
   }
 }
 
