@@ -55,19 +55,19 @@ abstract class EnumeratorP[X, E, F[_]] { self =>
       }
     }
 
-  def :^[B](other: EnumeratorP[X, B, F]): EnumeratorP[X, (E, B), F] = 
-    new EnumeratorP[X, (E, B), F] {
+  def :^[A, B, C](other: EnumeratorP[X, C, F])(implicit evE: E =:= Vector[A], evC: C =:= Vector[B]): EnumeratorP[X, Vector[(A, B)], F] = 
+    new EnumeratorP[X, Vector[(A, B)], F] {
       def apply[G[_]](implicit MO: G |>=| F) = {
         import MO._
-        cross(self[G], other[G])
+        cross(self[G].map(evE), other[G].map(evC))
       }
     }
 
-  def ^:[B](other: EnumeratorP[X, B, F]): EnumeratorP[X, (E, B), F] = 
-    new EnumeratorP[X, (E, B), F] {
+  def ^:[A, B, C](other: EnumeratorP[X, C, F])(implicit evE: E =:= Vector[A], evC: C =:= Vector[B]): EnumeratorP[X, Vector[(A, B)], F] =
+    new EnumeratorP[X, Vector[(A, B)], F] {
       def apply[G[_]](implicit MO: G |>=| F) = {
         import MO._
-        cross(self[G], other[G])
+        cross(self[G].map(evE), other[G].map(evC))
       }
     }
 
