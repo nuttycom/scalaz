@@ -94,6 +94,30 @@ trait EnumerateeTFunctions {
     }
     
   /**
+   * Uniqueness filter for chunks. Assumes that the input enumerator is already sorted.
+   */
+  def uniqChunk[X, E: Order, F[_]: Monad]: EnumerateeT[X, Vector[E], Vector[E], F] = 
+    new EnumerateeT[X, Vector[E], Vector[E], F] {
+      def apply[A] = {
+        def step(s: StepT[X, Vector[E], F, A], last: Option[E]): IterateeT[X, Vector[E], F, A] = 
+          s mapCont { k => 
+            cont { in =>
+              //val inr = in.filter(e => last.forall(l => Order[E].order(e, l) != EQ))
+              val (inr,newLast) = in.fold((emptyInput[Vector[E]], None),
+                                          ve => {
+                                            val uniqued = last.map(l => ve.dropWhile(Order[E].order(l,_) == EQ)).getOrElse(ve).distinct
+                                            (elInput(uniqued), uniqued.lastOption)
+                                          },
+                                          (eofInput[Vector[E]], None))
+              k(inr) >>== (step(_, newLast))
+            }
+          }
+
+        s => step(s, None).map(sdone(_, emptyInput))
+      }
+    }
+    
+  /**
    * Zips with the count of elements that have been encountered.
    */
   def zipWithIndex[X, E, F[_]: Monad]: EnumerateeT[X, E, (E, Long), F] = 
@@ -105,6 +129,27 @@ trait EnumerateeTFunctions {
           (in: Input[E]) =>
             in.map(e => (e, i)).fold(
               el = e => k(elInput(e)) >>== doneOr(loop(i + 1))
+              , empty = cont(step(k, i))
+              , eof = done(scont(k), in)
+            )
+        }
+
+        doneOr(loop(0))
+      }
+    }
+
+  /**
+   * Zips chunks with the count of elements that have been encountered.
+   */
+  def zipChunkWithIndex[X, E, F[_]: Monad]: EnumerateeT[X, Vector[E], Vector[(E, Long)], F] = 
+    new EnumerateeT[X, Vector[E], Vector[(E, Long)], F] {
+      def apply[A] = {
+        type StepEl = Input[Vector[(E, Long)]] => IterateeT[X, Vector[(E, Long)], F, A] 
+        def loop(i: Long) = (step(_: StepEl, i)) andThen (cont[X, Vector[E], F, StepT[X, Vector[(E, Long)], F, A]])
+        def step(k: StepEl, i: Long): (Input[Vector[E]] => IterateeT[X, Vector[E], F, StepT[X, Vector[(E, Long)], F, A]]) = {
+          (in: Input[Vector[E]]) =>
+            in.map(ve => ve.zipWithIndex.map { case (e, n) => (e, n + i) }).fold(
+              el = ve => k(elInput(ve)) >>== doneOr(loop(i + ve.size))
               , empty = cont(step(k, i))
               , eof = done(scont(k), in)
             )

@@ -48,9 +48,19 @@ trait EnumeratorT[X, E, F[_]] { self =>
       def apply[A] = s => EnumerateeT.uniq[X, E, F].apply(s).joinI[E, A] &= self
     }
 
+  def uniqChunk[B](implicit ord: Order[B], M: Monad[F], ev: E =:= Vector[B]): EnumeratorT[X, Vector[B], F] = 
+    new EnumeratorT[X, Vector[B], F] {
+      def apply[A] = s => EnumerateeT.uniqChunk[X, B, F].apply(s).joinI[Vector[B], A] &= self.map(ev)
+    }
+
   def zipWithIndex(implicit M: Monad[F]): EnumeratorT[X, (E, Long), F] = 
     new EnumeratorT[X, (E, Long), F] {
       def apply[A] = s => iterateeT((EnumerateeT.zipWithIndex[X, E, F].apply(s) &= self).run(x => err[X, (E, Long), F, A](x).value))
+    }
+
+  def zipChunkWithIndex[B](implicit M: Monad[F], ev: E =:= Vector[B]): EnumeratorT[X, Vector[(B, Long)], F] = 
+    new EnumeratorT[X, Vector[(B, Long)], F] {
+      def apply[A] = s => iterateeT((EnumerateeT.zipChunkWithIndex[X, B, F].apply(s) &= self.map(ev)).run(x => err[X, Vector[(B, Long)], F, A](x).value))
     }
 
   def drainTo[M[_]](implicit M: Monad[F], P: PlusEmpty[M], Z: Pointed[M]): F[M[E]] =

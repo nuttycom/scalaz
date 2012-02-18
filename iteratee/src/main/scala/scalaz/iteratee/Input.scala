@@ -4,7 +4,7 @@ package iteratee
 import LazyOption._
 import Iteratee._
 
-/**The input to an iteratee. **/
+/**The input to an iteratee. */
 sealed trait Input[E] {
   
   def fold[Z](empty: => Z, el: (=> E) => Z, eof: => Z): Z

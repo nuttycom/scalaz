@@ -47,11 +47,27 @@ abstract class EnumeratorP[X, E, F[_]] { self =>
       }
     }
 
+  def uniqChunk[B](implicit ord: Order[B], ev: E =:= Vector[B]) =
+    new EnumeratorP[X, Vector[B], F] {
+      def apply[G[_]](implicit MO: G |>=| F): EnumeratorT[X, Vector[B], G] = {
+        import MO._
+        self[G].uniqChunk
+      }
+    }
+
   def zipWithIndex = 
     new EnumeratorP[X, (E, Long), F] {
       def apply[G[_]](implicit MO: G |>=| F): EnumeratorT[X, (E, Long), G] = {
         import MO._
         self[G].zipWithIndex
+      }
+    }
+
+  def zipChunkWithIndex[B](implicit ev: E =:= Vector[B]) = 
+    new EnumeratorP[X, Vector[(B, Long)], F] {
+      def apply[G[_]](implicit MO: G |>=| F): EnumeratorT[X, Vector[(B, Long)], G] = {
+        import MO._
+        self[G].zipChunkWithIndex
       }
     }
 
