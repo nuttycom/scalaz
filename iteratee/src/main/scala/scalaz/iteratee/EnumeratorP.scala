@@ -89,7 +89,7 @@ abstract class EnumeratorP[X, E, F[_]] { self =>
     }
 
   def join[B](other: EnumeratorP[X, E, F])(implicit order: Order[B], m: Monad[F], ev: E =:= Vector[B]): EnumeratorP[X, Vector[(B, B)], F] =
-    EnumeratorP.joinE[X, B, B, F](m, order.order).apply(self.map(ev), other.map(ev))
+    EnumeratorP.joinE[X, B, B, F](m, order.order, order, order).apply(self.map(ev), other.map(ev))
 
   def merge[B](other: EnumeratorP[X, E, F])(implicit o: Order[B], m: Monad[F], ev: E =:= Vector[B]) = 
     EnumeratorP.mergeE[X, B, F].apply(self.map(ev), other.map(ev))
@@ -133,13 +133,13 @@ trait EnumeratorPFunctions {
     }
   }
 
-  def cogroupE[X, J, K, F[_]](implicit M: Monad[F], ord: (J, K) => Ordering) = liftE2[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], F] {
+  def cogroupE[X, J, K, F[_]](implicit M: Monad[F], ord: (J, K) => Ordering, orderJ: Order[J], orderK: Order[K]) = liftE2[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], F] {
     new ForallM[({type λ[β[_]] = Enumeratee2T[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], β]})#λ] {
       def apply[G[_]: Monad] = cogroupI[X, J, K, G]
     }
   }
 
-  def joinE[X, J, K, F[_]](implicit M: Monad[F], ord: (J, K) => Ordering) = liftE2[X, Vector[J], Vector[K], Vector[(J, K)], F] { 
+  def joinE[X, J, K, F[_]](implicit M: Monad[F], ord: (J, K) => Ordering, orderJ: Order[J], orderK: Order[K]) = liftE2[X, Vector[J], Vector[K], Vector[(J, K)], F] { 
     new ForallM[({type λ[β[_]] = Enumeratee2T[X, Vector[J], Vector[K], Vector[(J, K)], β]})#λ] {
       def apply[G[_]: Monad] = joinI[X, J, K, G]
     }

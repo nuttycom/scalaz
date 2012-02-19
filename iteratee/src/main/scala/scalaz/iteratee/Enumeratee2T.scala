@@ -22,7 +22,7 @@ trait Enumeratee2TFunctions {
   @inline private def lift[X, J, K, F[_]: Monad, A](iter: IterateeT[X, K, F, A]): IterateeT[X, J, ({type λ[α] = IterateeT[X, K, F, α] })#λ, A] =
     IterateeT.IterateeTMonadTrans[X, J].liftM[({type λ[α] = IterateeT[X, K, F, α]})#λ, A](iter)
 
-  def cogroupI[X, J, K, F[_]](implicit M: Monad[F], order: (J, K) => Ordering): Enumeratee2T[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], F] =
+  def cogroupI[X, J, K, F[_]](implicit M: Monad[F], order: (J, K) => Ordering, orderJ : Order[J], orderK: Order[K]): Enumeratee2T[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], F] =
     new Enumeratee2T[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], F] {
       type Buffer = (Vector[J],Vector[K])
       type Result = Either3[J,(J,K),K]
@@ -75,16 +75,49 @@ trait Enumeratee2TFunctions {
         def step(s: StepM[A], buffers: Buffer): IterateeT[X, Vector[J], IterateeM, StepM[A]] = {
           s.fold[IterateeT[X, Vector[J], IterateeM, StepM[A]]](
             cont = contf => {
-              for {
-                leftOpt  <- head[X, Vector[J], IterateeM]
-                rightOpt <- lift[X, Vector[J], Vector[K], F, Option[Vector[K]]](head[X, Vector[K], F])
-                a <- outerGroup(leftOpt, rightOpt, buffers) match {
-                  case Some((newChunk,newBuffers)) => {
-                    iterateeT[X, Vector[J], IterateeM, StepM[A]](contf(elInput(newChunk)) >>== (step(_, newBuffers.getOrElse((Vector(), Vector()))).value))
-                  }
-                  case None => done[X, Vector[J], IterateeM, StepM[A]](s, eofInput)
+              def matchOuter: PartialFunction[Option[(Vector[Result], Option[Buffer])], IterateeT[X, Vector[J], IterateeM, StepM[A]]] = {
+                case Some((newChunk,newBuffers)) => {
+                  iterateeT[X, Vector[J], IterateeM, StepM[A]](contf(elInput(newChunk)) >>== (step(_, newBuffers.getOrElse((Vector(), Vector()))).value))
                 }
-              } yield a
+                case None => done[X, Vector[J], IterateeM, StepM[A]](s, eofInput)
+              }
+
+              def readBoth = 
+                for {
+                  leftOpt  <- head[X, Vector[J], IterateeM]
+                  rightOpt <- lift[X, Vector[J], Vector[K], F, Option[Vector[K]]](head[X, Vector[K], F])
+                  a <- matchOuter(outerGroup(leftOpt, rightOpt, buffers))
+                } yield a
+
+              def readLeft = 
+                for {
+                  leftOpt  <- head[X, Vector[J], IterateeM]
+                  a <- matchOuter(outerGroup(leftOpt, Some(Vector()), buffers)) // Need to pass an empty buffer on right since this isn't terminal
+                } yield a
+
+              def readRight = 
+                for {
+                  rightOpt <- lift[X, Vector[J], Vector[K], F, Option[Vector[K]]](head[X, Vector[K], F])
+                  a <- matchOuter(outerGroup(Some(Vector()), rightOpt, buffers)) // Need to pass en empty buffer on the left since it isn't terminal
+                } yield a
+
+              /* Conditionally read from both sides as needed:
+               * 1. No buffer on either side means two reads
+               * 2. Buffer on one side means read the other side, and read the existing side if the buffer's first element is the same as its last element
+               * 3. Buffer on both sides means read the side that has 1st element == last element */
+              buffers match {
+                // No buffer on either side means we need a fresh read on both sides
+                case (Vector(), Vector()) => readBoth
+                // Buffer only on one side means a definite read on the other, and conditional on the existing if b.head == b.last
+                case (Vector(), right) if orderK.equal(right.head, right.last) => readBoth
+                case (Vector(), right) => readLeft
+                case (left, Vector())  if orderJ.equal(left.head, left.last)   => readBoth
+                case (left, Vector()) => readRight
+                // Buffer on both sides means conditional on each side having an equivalent series
+                case (left, right) if orderJ.equal(left.head, left.last) && orderK.equal(right.head, right.last) => readBoth
+                case (left, _) if orderJ.equal(left.head, left.last) => readLeft
+                case (_, right) if orderK.equal(right.head, right.last) => readRight
+              }
             },
             done = (a, r) => done[X, Vector[J], IterateeM, StepM[A]](sdone(a, if (r.isEof) eofInput else emptyInput), if (r.isEof) eofInput else emptyInput),
             err  = x => err[X, Vector[J], IterateeM, StepM[A]](x)
@@ -95,7 +128,7 @@ trait Enumeratee2TFunctions {
       }
     }
 
-  def joinI[X, J, K, F[_]](implicit M: Monad[F], ord: (J, K) => Ordering): Enumeratee2T[X, Vector[J], Vector[K], Vector[(J, K)], F] = {
+  def joinI[X, J, K, F[_]](implicit M: Monad[F], ord: (J, K) => Ordering, orderJ: Order[J], orderK: Order[K]): Enumeratee2T[X, Vector[J], Vector[K], Vector[(J, K)], F] = {
     new Enumeratee2T[X, Vector[J], Vector[K], Vector[(J, K)], F] {
       def apply[A] = {
         def cstep(step: StepT[X, Vector[(J, K)], F, A]): StepT[X, Vector[Either3[J, (J, K), K]], F, StepT[X, Vector[(J, K)], F, A]] = step.fold(
@@ -175,7 +208,7 @@ trait Enumeratee2TFunctions {
     }
   }
 
-  def parFoldI[X, J, K, F[_]](f: K => J)(implicit order: (J, K) => Ordering, m: Monoid[J], M: Monad[F]): Enumeratee2T[X, Vector[J], Vector[K], Vector[J], F] =
+  def parFoldI[X, J, K, F[_]](f: K => J)(implicit order: (J, K) => Ordering, orderJ: Order[J], orderK: Order[K], m: Monoid[J], M: Monad[F]): Enumeratee2T[X, Vector[J], Vector[K], Vector[J], F] =
     new Enumeratee2T[X, Vector[J], Vector[K], Vector[J], F] {
       def apply[A] = {
         def cstep(step: StepT[X, Vector[J], F, A]): StepT[X, Vector[Either3[J, (J, K), K]], F, StepT[X, Vector[J], F, A]]  = step.fold(
