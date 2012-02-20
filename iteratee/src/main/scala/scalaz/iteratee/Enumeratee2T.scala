@@ -32,11 +32,13 @@ trait Enumeratee2TFunctions {
          * If sides are exhausted but no more input is available it will completely use the chunks. */
         def innerGroup(lBuffer: Vector[J], finalLeft: Boolean, rBuffer: Vector[K], finalRight: Boolean, acc: Vector[Result]): (Vector[Result], Option[Buffer]) = {
           // Pull identical elements off of each side pre-compare
-          def identityPartition[E](elements: Vector[E]): (Vector[E],Vector[E]) = 
-            elements.headOption.map(h => elements.splitAt(elements.lastIndexOf(h) + 1)).getOrElse((Vector(),Vector()))
+          def identityPartition[E](elements: Vector[E], order: Order[E]): (Vector[E],Vector[E]) = 
+            elements.headOption.map {
+              h => (elements.takeWhile(order.order(h,_) == EQ), elements.dropWhile(order.order(h,_) == EQ))
+            }.getOrElse((Vector(),Vector()))
 
-          val (leftHeads, leftRest) = identityPartition(lBuffer)
-          val (rightHeads, rightRest) = identityPartition(rBuffer)
+          val (leftHeads, leftRest) = identityPartition(lBuffer, orderJ)
+          val (rightHeads, rightRest) = identityPartition(rBuffer, orderK)
 
           // If we have empty "rest" on either side and this isn't the final group (e.g. input available on that side), we've hit a chunk boundary and need more data
           if ((leftRest.isEmpty && ! finalLeft) || (rightRest.isEmpty && ! finalRight)) {
