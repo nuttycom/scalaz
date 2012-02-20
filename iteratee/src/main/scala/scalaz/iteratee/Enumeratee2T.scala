@@ -22,111 +22,112 @@ trait Enumeratee2TFunctions {
   @inline private def lift[X, J, K, F[_]: Monad, A](iter: IterateeT[X, K, F, A]): IterateeT[X, J, ({type λ[α] = IterateeT[X, K, F, α] })#λ, A] =
     IterateeT.IterateeTMonadTrans[X, J].liftM[({type λ[α] = IterateeT[X, K, F, α]})#λ, A](iter)
 
-  def cogroupI[X, J, K, F[_]](implicit M: Monad[F], order: (J, K) => Ordering, orderJ : Order[J], orderK: Order[K]): Enumeratee2T[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], F] =
+  def cogroupI[X, J, K, F[_]](implicit M: Monad[F], order: (J, K) => Ordering, jOrder : Order[J], kOrder: Order[K]): Enumeratee2T[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], F] =
     new Enumeratee2T[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], F] {
       type Buffer = (Vector[J],Vector[K])
       type Result = Either3[J,(J,K),K]
+      type ContFunc[A] = Input[Vector[Result]] => IterateeT[X, Vector[Result], F, A]
+
+      /* This method is responsible for grouping two chunks up to the point where either is exhausted.
+       * If sides are exhausted but no more input is available it will completely use the chunks. */
+      def innerGroup(lBuffer: Vector[J], finalLeft: Boolean, rBuffer: Vector[K], finalRight: Boolean, acc: Vector[Result], orderJ: Order[J], orderK: Order[K]): (Vector[Result], Option[Buffer]) = {
+        // Pull identical elements off of each side pre-compare
+        def identityPartition[E](elements: Vector[E], order: Order[E]): (Vector[E],Vector[E]) = 
+          elements.headOption.map {
+            h => (elements.takeWhile(order.order(h,_) == EQ), elements.dropWhile(order.order(h,_) == EQ))
+          }.getOrElse((Vector(),Vector()))
+
+        val (leftHeads, leftRest) = identityPartition(lBuffer, orderJ)
+        val (rightHeads, rightRest) = identityPartition(rBuffer, orderK)
+
+        // If we have empty "rest" on either side and this isn't the final group (e.g. input available on that side), we've hit a chunk boundary and need more data
+        if ((leftRest.isEmpty && ! finalLeft) || (rightRest.isEmpty && ! finalRight)) {
+          (acc, Some((lBuffer, rBuffer)))
+        } else {
+          (leftHeads.headOption, rightHeads.headOption) match {
+            // If leftHeads and rightHeads are equal, we need a cross-product
+            case (Some(l), Some(r)) if order(l,r) == EQ => innerGroup(leftRest, finalLeft, rightRest, finalRight, acc ++ leftHeads.flatMap(l => rightHeads.map(r => Middle3((l,r)))), orderJ, orderK)
+
+            // If leftHeads is less, accumulate it and recurse on the left remainder and full right side
+            case (Some(l), Some(r)) if order(l,r) == LT => innerGroup(leftRest, finalLeft, rBuffer, finalRight, acc ++ leftHeads.map(Left3(_)), orderJ, orderK)
+
+            // And vice-versa for rightHeads
+            case (Some(l), Some(r))  => innerGroup(lBuffer, finalLeft, rightRest, finalRight, acc ++ rightHeads.map(Right3(_)), orderJ, orderK)
+
+            // When we've expired one side we simply map the whole side. This should only be reached when finalLeft or finalRight are true for both sides
+            case (_, None) => (acc ++ lBuffer.map(Left3(_)), None)
+              case (None, _) => (acc ++ rBuffer.map(Right3(_)), None)
+          }
+        }
+      }
+
+      def outerGroup(left: Option[Vector[J]], right: Option[Vector[K]], b: Buffer, orderJ: Order[J], orderK: Order[K]): Option[(Vector[Result], Option[Buffer])] = {
+        val (lBuffer, rBuffer) = b
+
+        (left, right) match {
+          case (Some(leftChunk), Some(rightChunk)) => Some(innerGroup(lBuffer ++ leftChunk, false, rBuffer ++ rightChunk, false, Vector(), orderJ, orderK))
+          case (Some(leftChunk), None)             => Some(innerGroup(lBuffer ++ leftChunk, false, rBuffer, true, Vector(), orderJ, orderK))
+          case (None, Some(rightChunk))            => Some(innerGroup(lBuffer, true, rBuffer ++ rightChunk, false, Vector(), orderJ, orderK))
+          // Clean up remaining buffers when we run out of input
+          case (None, None) if ! (lBuffer.isEmpty && rBuffer.isEmpty) => Some(innerGroup(lBuffer, true, rBuffer, true, Vector(), orderJ, orderK))
+          case (None, None)                        => None
+        }
+      }
+
+      def readBoth[A](s: StepM[A], contf: ContFunc[A], buffers: Buffer, orderJ: Order[J], orderK: Order[K]): IterateeT[X, Vector[J], IterateeM, StepM[A]] = 
+        for {
+          leftOpt  <- head[X, Vector[J], IterateeM]
+          rightOpt <- lift[X, Vector[J], Vector[K], F, Option[Vector[K]]](head[X, Vector[K], F])
+          a <- matchOuter[A](s, contf, orderJ, orderK)(outerGroup(leftOpt, rightOpt, buffers, orderJ, orderK))
+        } yield a
+
+      def readLeft[A](s: StepM[A], contf: ContFunc[A], buffers: Buffer, orderJ: Order[J], orderK: Order[K]): IterateeT[X, Vector[J], IterateeM, StepM[A]] = 
+        for {
+          leftOpt  <- head[X, Vector[J], IterateeM]
+          a <- matchOuter[A](s, contf, orderJ, orderK)(outerGroup(leftOpt, Some(Vector()), buffers, orderJ, orderK)) // Need to pass an empty buffer on right since this isn't terminal
+        } yield a
+
+      def readRight[A](s: StepM[A], contf: ContFunc[A], buffers: Buffer, orderJ: Order[J], orderK: Order[K]): IterateeT[X, Vector[J], IterateeM, StepM[A]] = 
+        for {
+          rightOpt <- lift[X, Vector[J], Vector[K], F, Option[Vector[K]]](head[X, Vector[K], F])
+          a <- matchOuter[A](s, contf, orderJ, orderK)(outerGroup(Some(Vector()), rightOpt, buffers, orderJ, orderK)) // Need to pass en empty buffer on the left since it isn't terminal
+        } yield a
+
+      def matchOuter[A](s: StepM[A], contf: ContFunc[A], orderJ: Order[J], orderK: Order[K]): PartialFunction[Option[(Vector[Result], Option[Buffer])], IterateeT[X, Vector[J], IterateeM, StepM[A]]] = {
+        case Some((newChunk,newBuffers)) => {
+          iterateeT[X, Vector[J], IterateeM, StepM[A]](contf(elInput(newChunk)) >>== (step(_, newBuffers.getOrElse((Vector(), Vector())), orderJ, orderK).value))
+        }
+        case None => done[X, Vector[J], IterateeM, StepM[A]](s, eofInput)
+      }
+
+      def step[A](s: StepM[A], buffers: Buffer, orderJ: Order[J], orderK: Order[K]): IterateeT[X, Vector[J], IterateeM, StepM[A]] = {
+        s.fold[IterateeT[X, Vector[J], IterateeM, StepM[A]]](
+          cont = contf => {
+            /* Conditionally read from both sides as needed:
+             * 1. No buffer on either side means two reads
+             * 2. Buffer on one side means read the other side, and read the existing side if the buffer's first element is the same as its last element
+             * 3. Buffer on both sides means read the side that has 1st element == last element */
+            buffers match {
+              // No buffer on either side means we need a fresh read on both sides
+              case (Vector(), Vector()) => readBoth(s, contf, buffers, orderJ, orderK)
+              // Buffer only on one side means a definite read on the other, and conditional on the existing if b.head == b.last
+              case (Vector(), right) if orderK.equal(right.head, right.last) => readBoth(s, contf, buffers, orderJ, orderK)
+              case (Vector(), right) => readLeft(s, contf, buffers, orderJ, orderK)
+              case (left, Vector())  if orderJ.equal(left.head, left.last)   => readBoth(s, contf, buffers, orderJ, orderK)
+              case (left, Vector()) => readRight(s, contf, buffers, orderJ, orderK)
+              // Buffer on both sides means conditional on each side having an equivalent series
+              case (left, right) if orderJ.equal(left.head, left.last) && orderK.equal(right.head, right.last) => readBoth(s, contf, buffers, orderJ, orderK)
+              case (left, _) if orderJ.equal(left.head, left.last) => readLeft(s, contf, buffers, orderJ, orderK)
+              case (_, right) if orderK.equal(right.head, right.last) => readRight(s, contf, buffers, orderJ, orderK)
+            }
+          },
+          done = (a, r) => done[X, Vector[J], IterateeM, StepM[A]](sdone(a, if (r.isEof) eofInput else emptyInput), if (r.isEof) eofInput else emptyInput),
+          err  = x => err[X, Vector[J], IterateeM, StepM[A]](x)
+        )
+      }
 
       def apply[A] = {
-        /* This method is responsible for grouping two chunks up to the point where either is exhausted.
-         * If sides are exhausted but no more input is available it will completely use the chunks. */
-        def innerGroup(lBuffer: Vector[J], finalLeft: Boolean, rBuffer: Vector[K], finalRight: Boolean, acc: Vector[Result]): (Vector[Result], Option[Buffer]) = {
-          // Pull identical elements off of each side pre-compare
-          def identityPartition[E](elements: Vector[E], order: Order[E]): (Vector[E],Vector[E]) = 
-            elements.headOption.map {
-              h => (elements.takeWhile(order.order(h,_) == EQ), elements.dropWhile(order.order(h,_) == EQ))
-            }.getOrElse((Vector(),Vector()))
-
-          val (leftHeads, leftRest) = identityPartition(lBuffer, orderJ)
-          val (rightHeads, rightRest) = identityPartition(rBuffer, orderK)
-
-          // If we have empty "rest" on either side and this isn't the final group (e.g. input available on that side), we've hit a chunk boundary and need more data
-          if ((leftRest.isEmpty && ! finalLeft) || (rightRest.isEmpty && ! finalRight)) {
-            (acc, Some((lBuffer, rBuffer)))
-          } else {
-            (leftHeads.headOption, rightHeads.headOption) match {
-              // If leftHeads and rightHeads are equal, we need a cross-product
-              case (Some(l), Some(r)) if order(l,r) == EQ => innerGroup(leftRest, finalLeft, rightRest, finalRight, acc ++ leftHeads.flatMap(l => rightHeads.map(r => Middle3((l,r)))))
-
-              // If leftHeads is less, accumulate it and recurse on the left remainder and full right side
-              case (Some(l), Some(r)) if order(l,r) == LT => innerGroup(leftRest, finalLeft, rBuffer, finalRight, acc ++ leftHeads.map(Left3(_)))
-
-              // And vice-versa for rightHeads
-              case (Some(l), Some(r))  => innerGroup(lBuffer, finalLeft, rightRest, finalRight, acc ++ rightHeads.map(Right3(_)))
-
-              // When we've expired one side we simply map the whole side. This should only be reached when finalLeft or finalRight are true for both sides
-              case (_, None) => (acc ++ lBuffer.map(Left3(_)), None)
-              case (None, _) => (acc ++ rBuffer.map(Right3(_)), None)
-            }
-          }
-        }
-
-        def outerGroup(left: Option[Vector[J]], right: Option[Vector[K]], b: Buffer): Option[(Vector[Result], Option[Buffer])] = {
-          val (lBuffer, rBuffer) = b
-
-          (left, right) match {
-            case (Some(leftChunk), Some(rightChunk)) => Some(innerGroup(lBuffer ++ leftChunk, false, rBuffer ++ rightChunk, false, Vector()))
-            case (Some(leftChunk), None)             => Some(innerGroup(lBuffer ++ leftChunk, false, rBuffer, true, Vector()))
-            case (None, Some(rightChunk))            => Some(innerGroup(lBuffer, true, rBuffer ++ rightChunk, false, Vector()))
-            // Clean up remaining buffers when we run out of input
-            case (None, None) if ! (lBuffer.isEmpty && rBuffer.isEmpty) => Some(innerGroup(lBuffer, true, rBuffer, true, Vector()))
-            case (None, None)                        => None
-          }
-        }
-
-        def step(s: StepM[A], buffers: Buffer): IterateeT[X, Vector[J], IterateeM, StepM[A]] = {
-          s.fold[IterateeT[X, Vector[J], IterateeM, StepM[A]]](
-            cont = contf => {
-              def matchOuter: PartialFunction[Option[(Vector[Result], Option[Buffer])], IterateeT[X, Vector[J], IterateeM, StepM[A]]] = {
-                case Some((newChunk,newBuffers)) => {
-                  iterateeT[X, Vector[J], IterateeM, StepM[A]](contf(elInput(newChunk)) >>== (step(_, newBuffers.getOrElse((Vector(), Vector()))).value))
-                }
-                case None => done[X, Vector[J], IterateeM, StepM[A]](s, eofInput)
-              }
-
-              def readBoth = 
-                for {
-                  leftOpt  <- head[X, Vector[J], IterateeM]
-                  rightOpt <- lift[X, Vector[J], Vector[K], F, Option[Vector[K]]](head[X, Vector[K], F])
-                  a <- matchOuter(outerGroup(leftOpt, rightOpt, buffers))
-                } yield a
-
-              def readLeft = 
-                for {
-                  leftOpt  <- head[X, Vector[J], IterateeM]
-                  a <- matchOuter(outerGroup(leftOpt, Some(Vector()), buffers)) // Need to pass an empty buffer on right since this isn't terminal
-                } yield a
-
-              def readRight = 
-                for {
-                  rightOpt <- lift[X, Vector[J], Vector[K], F, Option[Vector[K]]](head[X, Vector[K], F])
-                  a <- matchOuter(outerGroup(Some(Vector()), rightOpt, buffers)) // Need to pass en empty buffer on the left since it isn't terminal
-                } yield a
-
-              /* Conditionally read from both sides as needed:
-               * 1. No buffer on either side means two reads
-               * 2. Buffer on one side means read the other side, and read the existing side if the buffer's first element is the same as its last element
-               * 3. Buffer on both sides means read the side that has 1st element == last element */
-              buffers match {
-                // No buffer on either side means we need a fresh read on both sides
-                case (Vector(), Vector()) => readBoth
-                // Buffer only on one side means a definite read on the other, and conditional on the existing if b.head == b.last
-                case (Vector(), right) if orderK.equal(right.head, right.last) => readBoth
-                case (Vector(), right) => readLeft
-                case (left, Vector())  if orderJ.equal(left.head, left.last)   => readBoth
-                case (left, Vector()) => readRight
-                // Buffer on both sides means conditional on each side having an equivalent series
-                case (left, right) if orderJ.equal(left.head, left.last) && orderK.equal(right.head, right.last) => readBoth
-                case (left, _) if orderJ.equal(left.head, left.last) => readLeft
-                case (_, right) if orderK.equal(right.head, right.last) => readRight
-              }
-            },
-            done = (a, r) => done[X, Vector[J], IterateeM, StepM[A]](sdone(a, if (r.isEof) eofInput else emptyInput), if (r.isEof) eofInput else emptyInput),
-            err  = x => err[X, Vector[J], IterateeM, StepM[A]](x)
-          )
-        }
-
-        step(_, (Vector(),Vector()))
+        step[A](_, (Vector(),Vector()), jOrder, kOrder)
       }
     }
 
