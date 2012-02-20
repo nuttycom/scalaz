@@ -64,6 +64,11 @@ class EnumeratorTTest extends Spec {
     (consume[Unit, (Int, Long), Id, List] &= enum.uniq.zipWithIndex).runOrZero must be_===(List((3, 0L), (4, 1L), (5, 2L)))
   }
 
+  "zipChunkWithIndex" in {
+    skipped("Pending fix")
+    true must_== false
+  }
+
   "lift" in {
     val enum = EnumeratorT.enumeratorTMonadTrans[Unit].liftM(List(1, 2, 3))
     (collectT[Unit, Int, List, Id] &= enum.map(_ * 2)).runOrZero must be_===(List(2, 4, 6))

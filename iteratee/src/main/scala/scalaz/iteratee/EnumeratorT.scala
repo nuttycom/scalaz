@@ -44,8 +44,18 @@ trait EnumeratorT[X, E, F[_]] { self =>
   def uniq(implicit ord: Order[E], M: Monad[F]): EnumeratorT[X, E, F] = 
     EnumerateeT.uniq[X, E, F] run self
 
+  def uniqChunk[B](implicit ord: Order[B], M: Monad[F], ev: E =:= Vector[B]): EnumeratorT[X, Vector[B], F] = 
+    new EnumeratorT[X, Vector[B], F] {
+      def apply[A] = s => EnumerateeT.uniqChunk[X, B, F].apply(s).joinI[Vector[B], A] &= self.map(ev)
+    }
+
   def zipWithIndex(implicit M: Monad[F]): EnumeratorT[X, (E, Long), F] = 
     EnumerateeT.zipWithIndex[X, E, F] run self
+
+  def zipChunkWithIndex[B](implicit M: Monad[F], ev: E =:= Vector[B]): EnumeratorT[X, Vector[(B, Long)], F] = 
+    new EnumeratorT[X, Vector[(B, Long)], F] {
+      def apply[A] = s => iterateeT((EnumerateeT.zipChunkWithIndex[X, B, F].apply(s) &= self.map(ev)).run(x => err[X, Vector[(B, Long)], F, A](x).value))
+    }
 
   def drainTo[M[_]](implicit M: Monad[F], P: PlusEmpty[M], Z: Pointed[M]): F[M[E]] =
     (IterateeT.consume[X, E, F, M] &= self).run(_ => M.point(P.empty)) 
@@ -65,8 +75,8 @@ trait EnumeratorT[X, E, F[_]] { self =>
       }
     }
     
-  def cross[E2](e2: EnumeratorT[X, E2, F])(implicit M: Monad[F]): EnumeratorT[X, (E, E2), F] =
-    EnumerateeT.cross[X, E, E2, F](e2) run self
+  def cross[A, E2](e2: EnumeratorT[X, Vector[E2], F])(implicit M: Monad[F], evA: E =:= Vector[A]): EnumeratorT[X, Vector[(A, E2)], F] =
+    EnumerateeT.cross[X, A, E2, F](e2) run self.map(evA)
 }
 
 trait EnumeratorTInstances0 {
