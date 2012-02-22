@@ -103,6 +103,13 @@ trait EnumeratorPFunctions {
     }
   }
 
+  def enumPOne[X, E, F[_]: Monad](e: E) = new EnumeratorP[X, E, F] {
+    def apply[G[_]](implicit MO: MonadPartialOrder[G, F]) = {
+      import MO._
+      EnumeratorT.enumOne[X, E, G](e)
+    }
+  }
+
   def perform[X, E, F[_], B](f: F[B]): EnumeratorP[X, E, F] = new EnumeratorP[X, E, F] {
     def apply[G[_]](implicit MO: MonadPartialOrder[G, F]) = {
       import MO._
