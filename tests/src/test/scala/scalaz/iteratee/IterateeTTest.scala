@@ -20,6 +20,14 @@ class IterateeTTest extends Spec {
     (fold[Unit, Int, Id, Int](0){ case (a,v) => a + v } &= enumStream[Unit, Int, Id](Stream.fill(10000)(1))).runOrZero must be_===(10000)
   }
 
+  "chain dissimilar iteratees through the end of an enumerator" in {
+    val nextIter = consume[Unit, Int, Id, List].withResult(enumStream(Stream(1, 2, 3))) {
+      l => fold[Unit, String, Id, List[String]](l.map(_.toString)) { case (a, v) => v :: a }
+    } 
+    
+    (nextIter &= enumStream(Stream("hello", "world"))).runOrZero must be_===(List("world", "hello", "1", "2", "3"))
+  }
+
   object instances {
     object iterateet {
       def monad[F[_]: Monad, X, E] = Monad[({type λ[α] = IterateeT[X, E, F, α]})#λ]

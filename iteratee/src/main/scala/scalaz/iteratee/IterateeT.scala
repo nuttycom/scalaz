@@ -115,6 +115,17 @@ sealed trait IterateeT[X, E, F[_], A] {
   def &=(e: EnumeratorT[X, E, F])(implicit F: Bind[F]): IterateeT[X, E, F, A] = 
     this >>== e[A] 
 
+  def withResult[EE, B](e: EnumeratorT[X, E, F])(f: A => IterateeT[X, EE, F, B])(implicit F: Monad[F]): IterateeT[X, EE, F, B] = {
+    def through(x: IterateeT[X, E, F, A]): IterateeT[X, EE, F, B] =
+      iterateeT(
+        F.bind(x.value)((s: StepT[X, E, F, A]) => s.fold[F[StepT[X, EE, F, B]]](
+          cont = k => through(cont(u => k(u))).value
+          , done = (a, _) => f(a).value
+          , err = e => F.point(StepT.serr(e))
+        )))
+    through(this &= e &= enumEofT)
+  }
+
   def mapI[G[_]](f: F ~> G)(implicit F: Functor[F]): IterateeT[X, E, G, A] = {
     def step: StepT[X, E, F, A] => StepT[X, E, G, A] =
       _.fold(
