@@ -119,7 +119,7 @@ sealed trait IterateeT[X, E, F[_], A] {
     def through(x: IterateeT[X, E, F, A]): IterateeT[X, EE, F, B] =
       iterateeT(
         F.bind(x.value)((s: StepT[X, E, F, A]) => s.fold[F[StepT[X, EE, F, B]]](
-          cont = k => through(cont(u => k(u))).value
+          cont = k => sys.error("diverging iteratee")
           , done = (a, _) => f(a).value
           , err = e => F.point(StepT.serr(e))
         )))
