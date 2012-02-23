@@ -31,32 +31,63 @@ trait Enumeratee2TFunctions {
       /* This method is responsible for grouping two chunks up to the point where either is exhausted.
        * If sides are exhausted but no more input is available it will completely use the chunks. */
       def innerGroup(lBuffer: Vector[J], finalLeft: Boolean, rBuffer: Vector[K], finalRight: Boolean, acc: Vector[Result], orderJ: Order[J], orderK: Order[K]): (Vector[Result], Option[Buffer]) = {
-        // Pull identical elements off of each side pre-compare
-        def identityPartition[E](elements: Vector[E], order: Order[E]): (Vector[E],Vector[E]) = 
-          elements.headOption.map {
-            h => (elements.takeWhile(order.order(h,_) == EQ), elements.dropWhile(order.order(h,_) == EQ))
-          }.getOrElse((Vector(),Vector()))
+        // Determine where the lead sequence of identical elements ends
+        def identityPartitionIndex[E](elements: Vector[E], order: Order[E]): Int =
+          if (elements.size == 0) {
+            0
+          } else {
+            var i = 1
+            while (i < elements.size && order(elements(0), elements(i)) == EQ) {
+              i += 1
+            }
+            i
+          }
 
-        val (leftHeads, leftRest) = identityPartition(lBuffer, orderJ)
-        val (rightHeads, rightRest) = identityPartition(rBuffer, orderK)
+        val leftRestIndex = identityPartitionIndex(lBuffer, orderJ)
+        val rightRestIndex = identityPartitionIndex(rBuffer, orderK)
 
         // If we have empty "rest" on either side and this isn't the final group (e.g. input available on that side), we've hit a chunk boundary and need more data
-        if ((leftRest.isEmpty && ! finalLeft) || (rightRest.isEmpty && ! finalRight)) {
+        if ((leftRestIndex == lBuffer.size && ! finalLeft) || (rightRestIndex == rBuffer.size && ! finalRight)) {
           (acc, Some((lBuffer, rBuffer)))
+        } else if (lBuffer.size == 0) {
+          // We've expired the left side, so we just map the whole right side. This should only be reached when finalLeft or finalRight are true for both sides
+          (acc ++ rBuffer.map(Right3(_)), None)
+        } else if (rBuffer.size == 0) {
+          // We've expired the right side, so we just map the whole left side. This should only be reached when finalLeft or finalRight are true for both sides
+          (acc ++ lBuffer.map(Left3(_)), None)
         } else {
-          (leftHeads.headOption, rightHeads.headOption) match {
-            // If leftHeads and rightHeads are equal, we need a cross-product
-            case (Some(l), Some(r)) if order(l,r) == EQ => innerGroup(leftRest, finalLeft, rightRest, finalRight, acc ++ leftHeads.flatMap(l => rightHeads.map(r => Middle3((l,r)))), orderJ, orderK)
+          // At this point we compare heads to determine how to group the leading identical sequences from both sides
+          order(lBuffer(0), rBuffer(0)) match {
+            case EQ => {
+              // When equal, we need to generate the cartesian product of both sides
+              val buffer = new Array[Result](leftRestIndex * rightRestIndex)
+              var i = 0
+              while (i < leftRestIndex) {
+                var j = 0
+                while (j < rightRestIndex) { 
+                  buffer(i * rightRestIndex + j) = Middle3(lBuffer(i), rBuffer(j))
+                  j += 1
+                }
+                i += 1
+              }
+              innerGroup(lBuffer.drop(leftRestIndex), finalLeft, rBuffer.drop(rightRestIndex), finalRight, acc ++ buffer, orderJ, orderK)
+            }
+            case LT => {
+              // Accumulate the left side first and recurse on the remainder of the left side and the full right side
+              val buffer = new Array[Result](leftRestIndex)
+              var i = 0
+              while (i < leftRestIndex) { buffer(i) = Left3(lBuffer(i)); i += 1 }
 
-            // If leftHeads is less, accumulate it and recurse on the left remainder and full right side
-            case (Some(l), Some(r)) if order(l,r) == LT => innerGroup(leftRest, finalLeft, rBuffer, finalRight, acc ++ leftHeads.map(Left3(_)), orderJ, orderK)
+              innerGroup(lBuffer.drop(leftRestIndex), finalLeft, rBuffer, finalRight, acc ++ buffer, orderJ, orderK)
+            }
+            case GT => {
+              // Accumulate the right side first and recurse on the remainder of the right side and the full left side
+              val buffer = new Array[Result](rightRestIndex)
+              var i = 0
+              while (i < rightRestIndex) { buffer(i) = Right3(rBuffer(i)); i += 1 }
 
-            // And vice-versa for rightHeads
-            case (Some(l), Some(r))  => innerGroup(lBuffer, finalLeft, rightRest, finalRight, acc ++ rightHeads.map(Right3(_)), orderJ, orderK)
-
-            // When we've expired one side we simply map the whole side. This should only be reached when finalLeft or finalRight are true for both sides
-            case (_, None) => (acc ++ lBuffer.map(Left3(_)), None)
-              case (None, _) => (acc ++ rBuffer.map(Right3(_)), None)
+              innerGroup(lBuffer, finalLeft, rBuffer.drop(rightRestIndex), finalRight, acc ++ buffer, orderJ, orderK)
+            }
           }
         }
       }
