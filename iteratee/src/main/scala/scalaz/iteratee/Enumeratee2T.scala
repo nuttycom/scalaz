@@ -31,7 +31,7 @@ trait Enumeratee2TFunctions {
 
       /* This method is responsible for grouping two chunks up to the point where either is exhausted.
        * If sides are exhausted but no more input is available it will completely use the chunks. */
-      def innerGroup(lBuffer: Vector[J], finalLeft: Boolean, rBuffer: Vector[K], finalRight: Boolean, acc: Vector[Result], orderJ: Order[J], orderK: Order[K]): (Vector[Result], Option[Buffer]) = {
+      def innerGroup(lBuffer: Vector[J], finalLeft: Boolean, rBuffer: Vector[K], finalRight: Boolean, acc: ArrayBuffer[Result], orderJ: Order[J], orderK: Order[K]): (ArrayBuffer[Result], Option[Buffer]) = {
         // Determine where the lead sequence of identical elements ends
         def identityPartitionIndex[E](elements: Vector[E], order: Order[E]): Int =
           if (elements.size == 0) {
@@ -93,15 +93,15 @@ trait Enumeratee2TFunctions {
         }
       }
 
-      def outerGroup(left: Option[Vector[J]], right: Option[Vector[K]], b: Buffer, orderJ: Order[J], orderK: Order[K]): Option[(Vector[Result], Option[Buffer])] = {
+      def outerGroup(left: Option[Vector[J]], right: Option[Vector[K]], b: Buffer, orderJ: Order[J], orderK: Order[K]): Option[(ArrayBuffer[Result], Option[Buffer])] = {
         val (lBuffer, rBuffer) = b
 
         (left, right) match {
-          case (Some(leftChunk), Some(rightChunk)) => Some(innerGroup(lBuffer ++ leftChunk, false, rBuffer ++ rightChunk, false, Vector(), orderJ, orderK))
-          case (Some(leftChunk), None)             => Some(innerGroup(lBuffer ++ leftChunk, false, rBuffer, true, Vector(), orderJ, orderK))
-          case (None, Some(rightChunk))            => Some(innerGroup(lBuffer, true, rBuffer ++ rightChunk, false, Vector(), orderJ, orderK))
+          case (Some(leftChunk), Some(rightChunk)) => Some(innerGroup(lBuffer ++ leftChunk, false, rBuffer ++ rightChunk, false, ArrayBuffer.empty[Result], orderJ, orderK))
+          case (Some(leftChunk), None)             => Some(innerGroup(lBuffer ++ leftChunk, false, rBuffer, true, ArrayBuffer.empty[Result], orderJ, orderK))
+          case (None, Some(rightChunk))            => Some(innerGroup(lBuffer, true, rBuffer ++ rightChunk, false, ArrayBuffer.empty[Result], orderJ, orderK))
           // Clean up remaining buffers when we run out of input
-          case (None, None) if ! (lBuffer.isEmpty && rBuffer.isEmpty) => Some(innerGroup(lBuffer, true, rBuffer, true, Vector(), orderJ, orderK))
+          case (None, None) if ! (lBuffer.isEmpty && rBuffer.isEmpty) => Some(innerGroup(lBuffer, true, rBuffer, true, ArrayBuffer.empty[Result], orderJ, orderK))
           case (None, None)                        => None
         }
       }
@@ -125,9 +125,9 @@ trait Enumeratee2TFunctions {
           a <- matchOuter[A](s, contf, orderJ, orderK)(outerGroup(Some(Vector()), rightOpt, buffers, orderJ, orderK)) // Need to pass en empty buffer on the left since it isn't terminal
         } yield a
 
-      def matchOuter[A](s: StepM[A], contf: ContFunc[A], orderJ: Order[J], orderK: Order[K]): PartialFunction[Option[(Vector[Result], Option[Buffer])], IterateeT[X, Vector[J], IterateeM, StepM[A]]] = {
+      def matchOuter[A](s: StepM[A], contf: ContFunc[A], orderJ: Order[J], orderK: Order[K]): PartialFunction[Option[(ArrayBuffer[Result], Option[Buffer])], IterateeT[X, Vector[J], IterateeM, StepM[A]]] = {
         case Some((newChunk,newBuffers)) => {
-          iterateeT[X, Vector[J], IterateeM, StepM[A]](contf(elInput(newChunk)) >>== (step(_, newBuffers.getOrElse((Vector(), Vector())), orderJ, orderK).value))
+          iterateeT[X, Vector[J], IterateeM, StepM[A]](contf(elInput(Vector(newChunk: _*))) >>== (step(_, newBuffers.getOrElse((Vector(), Vector())), orderJ, orderK).value))
         }
         case None => done[X, Vector[J], IterateeM, StepM[A]](s, eofInput)
       }
@@ -188,84 +188,86 @@ trait Enumeratee2TFunctions {
 
       def mergedToInput(e: E): Input[E] = elInput(e)
 
-      def apply[A] = {
-        def nextStep(surplus: Option[Surplus], order: Order[B])(v: StepM[A]) = step(v, surplus, order).value
+      def innerMerge(l: E, r: E, acc: E, order: Order[B]): (Option[E], Option[Surplus]) = {
+        var lIndex = 0
+        var rIndex = 0
 
-        def step(s: StepM[A], previousSurplus: Option[Surplus], order: Order[B]): IterateeT[X, E, IterateeM, StepM[A]] = {
-          def mergeChunks(contf: Input[E] => IterateeT[X,E,F,A], left: Option[E], right: Option[E], order: Order[B]): IterateeT[X, E, IterateeM, StepM[A]] = {
-            val (merged, surplus) = (left, right) match {
-              case (Some(l), Some(r)) => {
-                def innerMerge(l: E, r: E, acc: E, order: Order[B]): (Option[E], Option[Surplus]) = {
-                  var lIndex = 0
-                  var rIndex = 0
+        var buffer = ArrayBuffer[B]()
 
-                  var buffer = ArrayBuffer[B]()
-
-                  // Merge both sides as long as both sides have input
-                  while (lIndex < l.size && rIndex < r.size) {
-                    if (order.order(l(lIndex), r(rIndex)) == LT) {
-                      buffer += l(lIndex)
-                      lIndex += 1
-                    } else {
-                      buffer += r(rIndex)
-                      rIndex += 1
-                    }
-                  }
-
-                  // Determine the surplus based on which side ran out first
-                  val surplus = if (l.size == 0 && r.size == 0) {
-                    None
-                  } else {
-                    Some(if (lIndex < l.size) {
-                      Left(l.drop(lIndex))
-                    } else {
-                      Right(r.drop(rIndex))
-                    })
-                  }
-
-                  (Some(Vector(buffer: _*)), surplus)
-                }
-
-                innerMerge(l, r, Vector.empty[B], order)
-              }
-              case (None, None) => (None, None)
-              case (None, r) => (r, None)
-              case (l, None) => (l, None)
-            }
-
-
-            iterateeT[X, E, IterateeM, StepM[A]](contf(merged.map(mergedToInput).getOrElse(eofInput)) >>== nextStep(surplus, order))
+        // Merge both sides as long as both sides have input
+        while (lIndex < l.size && rIndex < r.size) {
+          if (order.order(l(lIndex), r(rIndex)) == LT) {
+            buffer += l(lIndex)
+            lIndex += 1
+          } else {
+            buffer += r(rIndex)
+            rIndex += 1
           }
-
-          s.fold[IterateeT[X, E, IterateeM, StepM[A]]](
-            cont = contf => {
-              previousSurplus match {
-                case Some(Left(left)) => {
-                  for {
-                    rightOpt <- lift[X, E, E, F, Option[E]](head[X, E, F])
-                    a        <- mergeChunks(contf, Some(left), rightOpt, order)
-                  } yield a
-                }
-                case Some(Right(right)) => {
-                  for {
-                    leftOpt  <- head[X, E, IterateeM]
-                    a        <- mergeChunks(contf, leftOpt, Some(right), order)
-                  } yield a
-                }
-                case None => {
-                  for {
-                    leftOpt  <- head[X, E, IterateeM]
-                    rightOpt <- lift[X, E, E, F, Option[E]](head[X, E, F])
-                    a        <- mergeChunks(contf, leftOpt, rightOpt, order)
-                  } yield a
-                }
-              }
-            },
-            done = (a, r) => done[X, E, IterateeM, StepM[A]](sdone(a, if (r.isEof) eofInput else emptyInput), if (r.isEof) eofInput else emptyInput),
-            err  = x => err(x)
-          )
         }
 
+        // Determine the surplus based on which side ran out first
+        val surplus = if (l.size == 0 && r.size == 0) {
+          None
+        } else {
+          Some(if (lIndex < l.size) {
+            Left(l.drop(lIndex))
+          } else {
+            Right(r.drop(rIndex))
+          })
+        }
+
+        (Some(Vector(buffer: _*)), surplus)
+      }
+
+      def mergeChunks[A](contf: Input[E] => IterateeT[X,E,F,A], left: Option[E], right: Option[E], order: Order[B]): IterateeT[X, E, IterateeM, StepM[A]] = {
+        val (merged, surplus) = (left, right) match {
+          case (Some(l), Some(r)) => {
+
+            innerMerge(l, r, Vector.empty[B], order)
+          }
+          case (None, None) => (None, None)
+            case (None, r) => (r, None)
+              case (l, None) => (l, None)
+        }
+
+
+        iterateeT[X, E, IterateeM, StepM[A]](contf(merged.map(mergedToInput).getOrElse(eofInput)) >>== nextStep(surplus, order))
+      }
+
+      def nextStep[A](surplus: Option[Surplus], order: Order[B])(v: StepM[A]) = step(v, surplus, order).value
+
+      def step[A](s: StepM[A], previousSurplus: Option[Surplus], order: Order[B]): IterateeT[X, E, IterateeM, StepM[A]] = {
+
+        s.fold[IterateeT[X, E, IterateeM, StepM[A]]](
+          cont = contf => {
+            previousSurplus match {
+              case Some(Left(left)) => {
+                for {
+                  rightOpt <- lift[X, E, E, F, Option[E]](head[X, E, F])
+                  a        <- mergeChunks(contf, Some(left), rightOpt, order)
+                } yield a
+              }
+              case Some(Right(right)) => {
+                for {
+                  leftOpt  <- head[X, E, IterateeM]
+                  a        <- mergeChunks(contf, leftOpt, Some(right), order)
+                } yield a
+              }
+              case None => {
+                for {
+                  leftOpt  <- head[X, E, IterateeM]
+                  rightOpt <- lift[X, E, E, F, Option[E]](head[X, E, F])
+                  a        <- mergeChunks(contf, leftOpt, rightOpt, order)
+                } yield a
+              }
+            }
+          },
+          done = (a, r) => done[X, E, IterateeM, StepM[A]](sdone(a, if (r.isEof) eofInput else emptyInput), if (r.isEof) eofInput else emptyInput),
+          err  = x => err(x)
+        )
+      }
+
+      def apply[A] = {
         step(_, None, ord)
       }
     }
