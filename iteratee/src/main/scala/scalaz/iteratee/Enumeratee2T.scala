@@ -6,6 +6,7 @@ import Iteratee._
 import Ordering.{EQ, GT, LT}
 
 import scala.collection.immutable.Vector
+import scala.collection.mutable.ArrayBuffer
 
 trait Enumeratee2T[X, J, K, I, F[_]] {
   type IterateeM[α] = IterateeT[X, K, F, α]
@@ -185,27 +186,55 @@ trait Enumeratee2TFunctions {
     new Enumeratee2T[X, E, E, E, F] {
       type Surplus = Either[E,E]
 
+      def mergedToInput(e: E): Input[E] = elInput(e)
+
       def apply[A] = {
-        def step(s: StepM[A], previousSurplus: Option[Surplus]): IterateeT[X, E, IterateeM, StepM[A]] = {
-          def mergeChunks(contf: Input[E] => IterateeT[X,E,F,A], left: Option[E], right: Option[E]): IterateeT[X, E, IterateeM, StepM[A]] = {
+        def nextStep(surplus: Option[Surplus], order: Order[B])(v: StepM[A]) = step(v, surplus, order).value
+
+        def step(s: StepM[A], previousSurplus: Option[Surplus], order: Order[B]): IterateeT[X, E, IterateeM, StepM[A]] = {
+          def mergeChunks(contf: Input[E] => IterateeT[X,E,F,A], left: Option[E], right: Option[E], order: Order[B]): IterateeT[X, E, IterateeM, StepM[A]] = {
             val (merged, surplus) = (left, right) match {
               case (Some(l), Some(r)) => {
-                def innerMerge(l: E, r: E, acc: E): (Option[E], Option[Surplus]) = (l.headOption, r.headOption) match {
-                  case (Some(x), Some(y)) if x < y => innerMerge(l.tail, r, acc :+ x)
-                  case (Some(x), Some(y))          => innerMerge(l, r.tail, acc :+ y)
-                  case (None, None)                => (Some(acc), None) // Technically this should only happen if the initial chunks are both Nil
-                  case (None, _)                   => (Some(acc), Some(Right(r)))
-                  case (_, None)                   => (Some(acc), Some(Left(l)))
+                def innerMerge(l: E, r: E, acc: E, order: Order[B]): (Option[E], Option[Surplus]) = {
+                  var lIndex = 0
+                  var rIndex = 0
+
+                  var buffer = ArrayBuffer[B]()
+
+                  // Merge both sides as long as both sides have input
+                  while (lIndex < l.size && rIndex < r.size) {
+                    if (order.order(l(lIndex), r(rIndex)) == LT) {
+                      buffer += l(lIndex)
+                      lIndex += 1
+                    } else {
+                      buffer += r(rIndex)
+                      rIndex += 1
+                    }
+                  }
+
+                  // Determine the surplus based on which side ran out first
+                  val surplus = if (l.size == 0 && r.size == 0) {
+                    None
+                  } else {
+                    Some(if (lIndex < l.size) {
+                      Left(l.drop(lIndex))
+                    } else {
+                      Right(r.drop(rIndex))
+                    })
+                  }
+
+                  (Some(Vector(buffer: _*)), surplus)
                 }
 
-                innerMerge(l, r, Vector.empty[B])
+                innerMerge(l, r, Vector.empty[B], order)
               }
               case (None, None) => (None, None)
               case (None, r) => (r, None)
               case (l, None) => (l, None)
             }
 
-            iterateeT[X, E, IterateeM, StepM[A]](contf(merged.map(elInput(_)).getOrElse(eofInput)) >>== (step(_, surplus).value))
+
+            iterateeT[X, E, IterateeM, StepM[A]](contf(merged.map(mergedToInput).getOrElse(eofInput)) >>== nextStep(surplus, order))
           }
 
           s.fold[IterateeT[X, E, IterateeM, StepM[A]]](
@@ -214,20 +243,20 @@ trait Enumeratee2TFunctions {
                 case Some(Left(left)) => {
                   for {
                     rightOpt <- lift[X, E, E, F, Option[E]](head[X, E, F])
-                    a        <- mergeChunks(contf, Some(left), rightOpt)
+                    a        <- mergeChunks(contf, Some(left), rightOpt, order)
                   } yield a
                 }
                 case Some(Right(right)) => {
                   for {
                     leftOpt  <- head[X, E, IterateeM]
-                    a        <- mergeChunks(contf, leftOpt, Some(right))
+                    a        <- mergeChunks(contf, leftOpt, Some(right), order)
                   } yield a
                 }
                 case None => {
                   for {
                     leftOpt  <- head[X, E, IterateeM]
                     rightOpt <- lift[X, E, E, F, Option[E]](head[X, E, F])
-                    a        <- mergeChunks(contf, leftOpt, rightOpt)
+                    a        <- mergeChunks(contf, leftOpt, rightOpt, order)
                   } yield a
                 }
               }
@@ -237,7 +266,7 @@ trait Enumeratee2TFunctions {
           )
         }
 
-        step(_, None)
+        step(_, None, ord)
       }
     }
   }
