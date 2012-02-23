@@ -175,8 +175,17 @@ trait EnumerateeTFunctions {
         def loop(i: Long) = (step(_: StepEl, i)) andThen (cont[X, Vector[E], F, StepT[X, Vector[(E, Long)], F, A]])
         def step(k: StepEl, i: Long): (Input[Vector[E]] => IterateeT[X, Vector[E], F, StepT[X, Vector[(E, Long)], F, A]]) = {
           (in: Input[Vector[E]]) =>
-            in.map(ve => ve.zipWithIndex.map { case (e, n) => (e, n + i) }).fold(
-              el = ve => k(elInput(ve)) >>== doneOr(loop(i + ve.size))
+            in.fold(
+              el = veRef => {
+                val ve = veRef
+                val buffer = new Array[(E,Long)](ve.size)
+                var n = 0
+                while (n < ve.size) {
+                  buffer(n) = (ve(n), n + i)
+                  n += 1
+                }
+                k(elInput(Vector(buffer: _*))) >>== doneOr(loop(i + ve.size))
+              }
               , empty = cont(step(k, i))
               , eof = done(scont(k), in)
             )
@@ -206,7 +215,22 @@ trait EnumerateeTFunctions {
             outerOpt   <- head[X, Vector[E1], F]
             sa         <- outerOpt match {
                             case Some(e) => 
-                              val pairingIteratee = EnumerateeT.map[X, Vector[E2], Vector[(E1, E2)], F]((a: Vector[E2]) => e.flatMap(eEl => a.map((eEl,_)))).apply(step)
+                              val pairingIteratee = EnumerateeT.map[X, Vector[E2], Vector[(E1, E2)], F]{
+                                (a: Vector[E2]) => {
+                                  val buffer = new Array[(E1,E2)](a.size * e.size)
+                                  var i = 0
+                                  while (i < e.size) {
+                                    var j = 0
+                                    while (j < a.size) {
+                                      buffer(i * a.size + j) = (e(i),a(j))
+                                      j += 1
+                                    }
+                                    i += 1
+                                  }
+
+                                  Vector(buffer: _*)
+                                }
+                              }.apply(step)
                               val nextStep = (pairingIteratee &= e2).run(x => err[X, Vector[(E1, E2)], F, A](x).value)
                               iterateeT[X, Vector[(E1, E2)], F, A](nextStep) >>== outerLoop
 
