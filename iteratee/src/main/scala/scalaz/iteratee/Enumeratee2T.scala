@@ -34,11 +34,11 @@ trait Enumeratee2TFunctions {
       def innerGroup(lBuffer: Vector[J], finalLeft: Boolean, rBuffer: Vector[K], finalRight: Boolean, acc: ArrayBuffer[Result], orderJ: Order[J], orderK: Order[K]): (ArrayBuffer[Result], Option[Buffer]) = {
         // Determine where the lead sequence of identical elements ends
         def identityPartitionIndex[E](elements: Vector[E], order: Order[E]): Int =
-          if (elements.size == 0) {
+          if (elements.length == 0) {
             0
           } else {
             var i = 1
-            while (i < elements.size && order(elements(0), elements(i)) == EQ) {
+            while (i < elements.length && order(elements(0), elements(i)) == EQ) {
               i += 1
             }
             i
@@ -48,12 +48,12 @@ trait Enumeratee2TFunctions {
         val rightRestIndex = identityPartitionIndex(rBuffer, orderK)
 
         // If we have empty "rest" on either side and this isn't the final group (e.g. input available on that side), we've hit a chunk boundary and need more data
-        if ((leftRestIndex == lBuffer.size && ! finalLeft) || (rightRestIndex == rBuffer.size && ! finalRight)) {
+        if ((leftRestIndex == lBuffer.length && ! finalLeft) || (rightRestIndex == rBuffer.length && ! finalRight)) {
           (acc, Some((lBuffer, rBuffer)))
-        } else if (lBuffer.size == 0) {
+        } else if (lBuffer.length == 0) {
           // We've expired the left side, so we just map the whole right side. This should only be reached when finalLeft or finalRight are true for both sides
           (acc ++ rBuffer.map(Right3(_)), None)
-        } else if (rBuffer.size == 0) {
+        } else if (rBuffer.length == 0) {
           // We've expired the right side, so we just map the whole left side. This should only be reached when finalLeft or finalRight are true for both sides
           (acc ++ lBuffer.map(Left3(_)), None)
         } else {
@@ -195,7 +195,7 @@ trait Enumeratee2TFunctions {
         var buffer = ArrayBuffer[B]()
 
         // Merge both sides as long as both sides have input
-        while (lIndex < l.size && rIndex < r.size) {
+        while (lIndex < l.length && rIndex < r.length) {
           if (order.order(l(lIndex), r(rIndex)) == LT) {
             buffer += l(lIndex)
             lIndex += 1
@@ -206,10 +206,10 @@ trait Enumeratee2TFunctions {
         }
 
         // Determine the surplus based on which side ran out first
-        val surplus = if (l.size == 0 && r.size == 0) {
+        val surplus = if (l.length == 0 && r.length == 0) {
           None
         } else {
-          Some(if (lIndex < l.size) {
+          Some(if (lIndex < l.length) {
             Left(l.drop(lIndex))
           } else {
             Right(r.drop(rIndex))
