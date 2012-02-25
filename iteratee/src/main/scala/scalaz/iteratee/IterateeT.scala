@@ -69,6 +69,10 @@ sealed trait IterateeT[X, E, F[_], A] {
     flatMap(a => StepT.sdone[X, E, F, B](f(a), emptyInput).pointI)
   }
 
+  def mapF[B](f: A => F[B])(implicit F: Monad[F]): IterateeT[X, E, F, B] = {
+    flatMap(a => iterateeT(F.map(f(a)) { b => StepT.sdone[X, E, F, B](b, emptyInput)}))
+  }
+
   def contramap[EE](f: EE => E)(implicit F: Monad[F]): IterateeT[X, EE, F, A] = {
     def step(s: StepT[X, E, F, A]): IterateeT[X, EE, F, A] = s.fold[IterateeT[X, EE, F, A]](
       cont = k => cont((in: Input[EE]) => k(in.map(i => f(i))) >>== step),
@@ -202,6 +206,9 @@ sealed trait IterateeT[X, E, F[_], A] {
     )
     cont(loop(this, other))
   }
+
+  def liftI[B](implicit F: Monad[F]): IterateeT[X, B, ({type λ[α] = IterateeT[X, E, F, α] })#λ, A] =
+    IterateeT.IterateeTMonadTrans[X, B].liftM[({type λ[α] = IterateeT[X, E, F, α]})#λ, A](this)
 }
 
 object IterateeT extends IterateeTFunctions with IterateeTInstances {

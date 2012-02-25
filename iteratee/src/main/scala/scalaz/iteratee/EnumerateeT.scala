@@ -207,7 +207,7 @@ trait EnumerateeTFunctions {
       }
     }
 
-  def cross[X, E1, E2, F[_]: Monad](e2: EnumeratorT[X, Vector[E2], F]): EnumerateeT[X, Vector[E1], Vector[(E1, E2)], F] =
+  def crossChunked[X, E1, E2, F[_]: Monad](e2: EnumeratorT[X, Vector[E2], F]): EnumerateeT[X, Vector[E1], Vector[(E1, E2)], F] =
     new EnumerateeT[X, Vector[E1], Vector[(E1, E2)], F] {
       def apply[A] = {
         def outerLoop(step: StepT[X, Vector[(E1, E2)], F, A]): IterateeT[X, Vector[E1], F, StepT[X, Vector[(E1, E2)], F, A]] =

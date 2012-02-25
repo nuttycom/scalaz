@@ -76,7 +76,7 @@ abstract class EnumeratorP[X, E, F[_]] { self =>
     new EnumeratorP[X, Vector[(A, B)], F] {
       def apply[G[_]](implicit MO: G |>=| F) = {
         import MO._
-        self[G].map(evE).cross(other[G].map(evC))
+        self[G].map(evE).crossChunked(other[G].map(evC))
       }
     }
 
@@ -84,15 +84,15 @@ abstract class EnumeratorP[X, E, F[_]] { self =>
     new EnumeratorP[X, Vector[(A, B)], F] {
       def apply[G[_]](implicit MO: G |>=| F) = {
         import MO._
-        self[G].map(evE).cross(other[G].map(evC))
+        self[G].map(evE).crossChunked(other[G].map(evC))
       }
     }
 
-  def join[B](other: EnumeratorP[X, E, F])(implicit order: Order[B], m: Monad[F], ev: E =:= Vector[B]): EnumeratorP[X, Vector[(B, B)], F] =
-    EnumeratorP.joinE[X, B, B, F](m, order.order, order, order).apply(self.map(ev), other.map(ev))
+  def joinChunked[B](other: EnumeratorP[X, E, F])(implicit order: Order[B], m: Monad[F], ev: E =:= Vector[B]): EnumeratorP[X, Vector[(B, B)], F] =
+    EnumeratorP.joinEChunked[X, B, B, F](m, order.order, order, order).apply(self.map(ev), other.map(ev))
 
-  def merge[B](other: EnumeratorP[X, E, F])(implicit o: Order[B], m: Monad[F], ev: E =:= Vector[B]) = 
-    EnumeratorP.mergeE[X, B, F].apply(self.map(ev), other.map(ev))
+  def mergeChunked[B](other: EnumeratorP[X, E, F])(implicit o: Order[B], m: Monad[F], ev: E =:= Vector[B]) = 
+    EnumeratorP.mergeEChunked[X, B, F].apply(self.map(ev), other.map(ev))
 }
 
 trait EnumeratorPFunctions {
@@ -140,29 +140,29 @@ trait EnumeratorPFunctions {
     }
   }
 
-  def cogroupE[X, J, K, F[_]](implicit M: Monad[F], ord: (J, K) => Ordering, orderJ: Order[J], orderK: Order[K]) = liftE2[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], F] {
+  def cogroupEChunked[X, J, K, F[_]](implicit M: Monad[F], ord: (J, K) => Ordering, orderJ: Order[J], orderK: Order[K]) = liftE2[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], F] {
     new ForallM[({type λ[β[_]] = Enumeratee2T[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], β]})#λ] {
-      def apply[G[_]: Monad] = cogroupI[X, J, K, G]
+      def apply[G[_]: Monad] = cogroupIChunked[X, J, K, G]
     }
   }
 
-  def joinE[X, J, K, F[_]](implicit M: Monad[F], ord: (J, K) => Ordering, orderJ: Order[J], orderK: Order[K]) = liftE2[X, Vector[J], Vector[K], Vector[(J, K)], F] { 
+  def joinEChunked[X, J, K, F[_]](implicit M: Monad[F], ord: (J, K) => Ordering, orderJ: Order[J], orderK: Order[K]) = liftE2[X, Vector[J], Vector[K], Vector[(J, K)], F] { 
     new ForallM[({type λ[β[_]] = Enumeratee2T[X, Vector[J], Vector[K], Vector[(J, K)], β]})#λ] {
-      def apply[G[_]: Monad] = joinI[X, J, K, G]
+      def apply[G[_]: Monad] = joinIChunked[X, J, K, G]
     }
   }
 
-  def mergeE[X, B, F[_]](implicit o: Order[B], fm: Monad[F]) = liftE2[X, Vector[B], Vector[B], Vector[B], F] { 
+  def mergeEChunked[X, B, F[_]](implicit o: Order[B], fm: Monad[F]) = liftE2[X, Vector[B], Vector[B], Vector[B], F] { 
     type E = Vector[B]
     new ForallM[({type λ[β[_]] = Enumeratee2T[X, E, E, E, β]})#λ] {
-      def apply[G[_]: Monad] = mergeI[X, B, G]
+      def apply[G[_]: Monad] = mergeIChunked[X, B, G]
     }
   }
 
-  def mergeAll[X, B, F[_]](enumerators: EnumeratorP[X, Vector[B], F]*)(implicit o: Order[B], fm: Monad[F]): EnumeratorP[X, Vector[B], F] = { 
+  def mergeAllChunked[X, B, F[_]](enumerators: EnumeratorP[X, Vector[B], F]*)(implicit o: Order[B], fm: Monad[F]): EnumeratorP[X, Vector[B], F] = { 
     type E = Vector[B]
     @tailrec def mergeOne(e: EnumeratorP[X, E, F], es: List[EnumeratorP[X, E, F]]): EnumeratorP[X, E, F] = es match {
-      case x :: xs => mergeOne(e merge x, xs) 
+      case x :: xs => mergeOne(e mergeChunked x, xs) 
       case Nil => e
     }   
 

@@ -16,14 +16,12 @@ trait Enumeratee2T[X, J, K, I, F[_]] {
   def apply[A]: StepM[A] => IterateeT[X, J, IterateeM, StepM[A]]
 }
 
-trait Enumeratee2TFunctions {
+trait Enumeratee2TChunkedFunctions {
   import scalaz.syntax.Syntax.bind._
   import scalaz.syntax.Syntax.order._
 
-  @inline private def lift[X, J, K, F[_]: Monad, A](iter: IterateeT[X, K, F, A]): IterateeT[X, J, ({type λ[α] = IterateeT[X, K, F, α] })#λ, A] =
-    IterateeT.IterateeTMonadTrans[X, J].liftM[({type λ[α] = IterateeT[X, K, F, α]})#λ, A](iter)
 
-  def cogroupI[X, J, K, F[_]](implicit M: Monad[F], order: (J, K) => Ordering, jOrder : Order[J], kOrder: Order[K]): Enumeratee2T[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], F] =
+  def cogroupIChunked[X, J, K, F[_]](implicit M: Monad[F], order: (J, K) => Ordering, jOrder : Order[J], kOrder: Order[K]): Enumeratee2T[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], F] =
     new Enumeratee2T[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], F] {
       type Buffer = (Vector[J],Vector[K])
       type Result = Either3[J,(J,K),K]
@@ -32,6 +30,7 @@ trait Enumeratee2TFunctions {
       /* This method is responsible for grouping two chunks up to the point where either is exhausted.
        * If sides are exhausted but no more input is available it will completely use the chunks. */
       def innerGroup(lBuffer: Vector[J], finalLeft: Boolean, rBuffer: Vector[K], finalRight: Boolean, acc: ArrayBuffer[Result], orderJ: Order[J], orderK: Order[K]): (ArrayBuffer[Result], Option[Buffer]) = {
+        //TODO: Use iterators instead of indexed access into the vector
         // Determine where the lead sequence of identical elements ends
         def identityPartitionIndex[E](elements: Vector[E], order: Order[E]): Int =
           if (elements.length == 0) {
@@ -109,7 +108,7 @@ trait Enumeratee2TFunctions {
       def readBoth[A](s: StepM[A], contf: ContFunc[A], buffers: Buffer, orderJ: Order[J], orderK: Order[K]): IterateeT[X, Vector[J], IterateeM, StepM[A]] = 
         for {
           leftOpt  <- head[X, Vector[J], IterateeM]
-          rightOpt <- lift[X, Vector[J], Vector[K], F, Option[Vector[K]]](head[X, Vector[K], F])
+          rightOpt <- head[X, Vector[K], F].liftI[Vector[J]]
           a <- matchOuter[A](s, contf, orderJ, orderK)(outerGroup(leftOpt, rightOpt, buffers, orderJ, orderK))
         } yield a
 
@@ -121,7 +120,7 @@ trait Enumeratee2TFunctions {
 
       def readRight[A](s: StepM[A], contf: ContFunc[A], buffers: Buffer, orderJ: Order[J], orderK: Order[K]): IterateeT[X, Vector[J], IterateeM, StepM[A]] = 
         for {
-          rightOpt <- lift[X, Vector[J], Vector[K], F, Option[Vector[K]]](head[X, Vector[K], F])
+          rightOpt <- head[X, Vector[K], F].liftI[Vector[J]]
           a <- matchOuter[A](s, contf, orderJ, orderK)(outerGroup(Some(Vector()), rightOpt, buffers, orderJ, orderK)) // Need to pass en empty buffer on the left since it isn't terminal
         } yield a
 
@@ -163,7 +162,7 @@ trait Enumeratee2TFunctions {
       }
     }
 
-  def joinI[X, J, K, F[_]](implicit M: Monad[F], ord: (J, K) => Ordering, orderJ: Order[J], orderK: Order[K]): Enumeratee2T[X, Vector[J], Vector[K], Vector[(J, K)], F] = {
+  def joinIChunked[X, J, K, F[_]](implicit M: Monad[F], ord: (J, K) => Ordering, orderJ: Order[J], orderK: Order[K]): Enumeratee2T[X, Vector[J], Vector[K], Vector[(J, K)], F] = {
     new Enumeratee2T[X, Vector[J], Vector[K], Vector[(J, K)], F] {
       def apply[A] = {
         def cstep(step: StepT[X, Vector[(J, K)], F, A]): StepT[X, Vector[Either3[J, (J, K), K]], F, StepT[X, Vector[(J, K)], F, A]] = step.fold(
@@ -176,12 +175,12 @@ trait Enumeratee2TFunctions {
           err  = x => serr(x)
         )
 
-        (step: StepT[X, Vector[(J, K)], F, A]) => cogroupI.apply(cstep(step)) flatMap { endStep[X, J, K, Vector[(J, K)], F, A] }
+        (step: StepT[X, Vector[(J, K)], F, A]) => cogroupIChunked.apply(cstep(step)) flatMap { endStepChunked[X, J, K, Vector[(J, K)], F, A] }
       }
     }
   }
 
-  def mergeI[X, B, F[_]](implicit M: Monad[F], ord: Order[B]): Enumeratee2T[X, Vector[B], Vector[B], Vector[B], F] = {
+  def mergeIChunked[X, B, F[_]](implicit M: Monad[F], ord: Order[B]): Enumeratee2T[X, Vector[B], Vector[B], Vector[B], F] = {
     type E = Vector[B]
     new Enumeratee2T[X, E, E, E, F] {
       type Surplus = Either[E,E]
@@ -243,7 +242,7 @@ trait Enumeratee2TFunctions {
             previousSurplus match {
               case Some(Left(left)) => {
                 for {
-                  rightOpt <- lift[X, E, E, F, Option[E]](head[X, E, F])
+                  rightOpt <- head[X, E, F].liftI[E]
                   a        <- mergeChunks(contf, Some(left), rightOpt, order)
                 } yield a
               }
@@ -256,7 +255,7 @@ trait Enumeratee2TFunctions {
               case None => {
                 for {
                   leftOpt  <- head[X, E, IterateeM]
-                  rightOpt <- lift[X, E, E, F, Option[E]](head[X, E, F])
+                  rightOpt <- head[X, E, F].liftI[E]
                   a        <- mergeChunks(contf, leftOpt, rightOpt, order)
                 } yield a
               }
@@ -273,7 +272,7 @@ trait Enumeratee2TFunctions {
     }
   }
 
-  def parFoldI[X, J, K, F[_]](f: K => J)(implicit order: (J, K) => Ordering, orderJ: Order[J], orderK: Order[K], m: Monoid[J], M: Monad[F]): Enumeratee2T[X, Vector[J], Vector[K], Vector[J], F] =
+  def parFoldIChunked[X, J, K, F[_]](f: K => J)(implicit order: (J, K) => Ordering, orderJ: Order[J], orderK: Order[K], m: Monoid[J], M: Monad[F]): Enumeratee2T[X, Vector[J], Vector[K], Vector[J], F] =
     new Enumeratee2T[X, Vector[J], Vector[K], Vector[J], F] {
       def apply[A] = {
         def cstep(step: StepT[X, Vector[J], F, A]): StepT[X, Vector[Either3[J, (J, K), K]], F, StepT[X, Vector[J], F, A]]  = step.fold(
@@ -290,15 +289,16 @@ trait Enumeratee2TFunctions {
           err  = x => serr(x)
         )
 
-        (step: StepT[X, Vector[J], F, A]) => cogroupI.apply(cstep(step)) flatMap { endStep[X, J, K, Vector[J], F, A] }
+        (step: StepT[X, Vector[J], F, A]) => cogroupIChunked.apply(cstep(step)) flatMap { endStepChunked[X, J, K, Vector[J], F, A] }
       }
     }
 
-  private def endStep[X, J, K, EE, F[_]: Monad, A](sa: StepT[X, Vector[Either3[J, (J, K), K]], F, StepT[X, EE, F, A]]) = {
+  private def endStepChunked[X, J, K, EE, F[_]: Monad, A](sa: StepT[X, Vector[Either3[J, (J, K), K]], F, StepT[X, EE, F, A]]):
+  IterateeT[X, Vector[J], ({ type λ[α] = IterateeT[X, Vector[K], F, α] })#λ, StepT[X, EE, F, A]] = {
     IterateeT.IterateeTMonadTransT[X, Vector[J], ({ type λ[β[_], α] = IterateeT[X, Vector[K], β, α] })#λ].liftM(sa.pointI.run(x => err[X, EE, F, A](x).value))
   }
 }
 
-object Enumeratee2T extends Enumeratee2TFunctions
+object Enumeratee2T extends Enumeratee2TChunkedFunctions
 
 // vim: set ts=4 sw=4 et:
