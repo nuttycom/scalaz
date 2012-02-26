@@ -21,7 +21,7 @@ class EnumeratorPTest extends Spec {
       val enum  = enumPStream[Unit, Vector[Int], Id](Stream(Vector(1, 3), Vector(3, 5, 7, 8, 8)))
       val enum2 = enumPStream[Unit, Vector[Int], Id](Stream(Vector(2, 3, 4, 5), Vector(5, 6, 8, 8)))
 
-      val cf = cogroupE[Unit, Int, Int, Id]
+      val cf = cogroupEChunked[Unit, Int, Int, Id]
       val enumR = cf(enum, enum2)
 
       (consume[Unit, Vector[Either3[Int, (Int, Int), Int]], Id, List] &= enumR.apply[Id]).run(_ => Nil).flatten must be_===(List(
@@ -46,7 +46,7 @@ class EnumeratorPTest extends Spec {
       val enum2 = enumPStream[Unit, Vector[Int], Id](Stream(Vector(2, 3, 4, 5), Vector(5, 6, 8, 8)))
       val enum3 = enumPStream[Unit, Vector[Int], Id](Stream(Vector(3, 5, 8))) 
 
-      val cf = cogroupE[Unit, Int, Int, Id]
+      val cf = cogroupEChunked[Unit, Int, Int, Id]
       val enumR = cf(cf(enum, enum2) map { _.map(_.fold(identity[Int], _._1, identity[Int])) }, enum3)
 
       (consume[Unit, Vector[Either3[Int, (Int, Int), Int]], Id, List] &= enumR.apply[Id]).run(_ => Nil).flatten must be_===(List(
@@ -71,7 +71,7 @@ class EnumeratorPTest extends Spec {
     val enum1 = enumPStream[Unit, Vector[Int], Id](Stream(Vector(1, 5, 9)))
     val enum2 = enumPStream[Unit, Vector[Int], Id](Stream(Vector(2, 3, 6)))
     val enum3 = enumPStream[Unit, Vector[Int], Id](Stream(Vector(4, 7, 8)))
-    (consume[Unit, Vector[Int], Id, List] &= mergeAll(enum1, enum2, enum3).apply[Id]).runOrZero.flatten must be_===(List(1, 2, 3, 4, 5, 6, 7, 8, 9))
+    (consume[Unit, Vector[Int], Id, List] &= mergeAllChunked(enum1, enum2, enum3).apply[Id]).runOrZero.flatten must be_===(List(1, 2, 3, 4, 5, 6, 7, 8, 9))
   }
 }
 

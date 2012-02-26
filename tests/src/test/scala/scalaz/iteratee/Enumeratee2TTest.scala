@@ -22,7 +22,7 @@ class Enumeratee2TTest extends Spec {
     val enum  = enumStream[Unit, Vector[Int], IterateeM](Stream(Vector(1, 3), Vector(5, 7)))
     val enum2 = enumStream[Unit, Vector[Int], Id](Stream(Vector(2, 3, 4, 5, 6)))
 
-    val outer = joinI[Unit, Int, Int, Id].apply(consume[Unit, Vector[(Int, Int)], Id, List].value) &= enum
+    val outer = joinIChunked[Unit, Int, Int, Id].apply(consume[Unit, Vector[(Int, Int)], Id, List].value) &= enum
     val inner = outer.run(_ => sys.error("...")) &= enum2
 
     inner.run(_ => sys.error("...")).pointI.run(_ => sys.error("...")).flatten must be_===(List((3, 3), (5, 5)))
@@ -36,7 +36,7 @@ class Enumeratee2TTest extends Spec {
       val enum2 = enumStream[Unit, Vector[Int], Id](Stream(Vector(2, 3, 4, 5), Vector(5, 6, 8, 8)))
 
       val consumer = consume[Unit, Vector[E3I], Id, List]
-      val outer = consumer.advance[Vector[Int], StepT[Unit, Vector[E3I], Id, List[Vector[E3I]]], IterateeM](cogroupI[Unit, Int, Int, Id].apply[List[Vector[E3I]]])(mpo)
+      val outer = consumer.advance[Vector[Int], StepT[Unit, Vector[E3I], Id, List[Vector[E3I]]], IterateeM](cogroupIChunked[Unit, Int, Int, Id].apply[List[Vector[E3I]]])(mpo)
       val outer2 = outer &= enum
       val inner = outer2.run(_ => sys.error("...")) &= enum2
       
@@ -62,7 +62,7 @@ class Enumeratee2TTest extends Spec {
     val enum  = enumStream[Unit, Vector[Int], ({ type λ[A] = IterateeT[Unit, Vector[Int], Id, A] })#λ](Stream(Vector(1, 3, 5)))
     val enum2 = enumStream[Unit, Vector[Int], Id](Stream(Vector(2, 3, 3), Vector(4, 5, 6)))
 
-    val outer = mergeI[Unit, Int, Id].apply(consume[Unit, Vector[Int], Id, List].value) &= enum
+    val outer = mergeIChunked[Unit, Int, Id].apply(consume[Unit, Vector[Int], Id, List].value) &= enum
     val inner = outer.run(_ => sys.error("...")) &= enum2
     
     inner.run(_ => sys.error("...")).pointI.run(_ => sys.error("...")).flatten.toList must be_===(List(1, 2, 3, 3, 3, 4, 5, 5, 6))
@@ -73,7 +73,7 @@ class Enumeratee2TTest extends Spec {
     val enum2 = enumStream[Unit, Vector[Int], Id](Stream(Vector(2, 3, 4)))
 
     val consumer = consume[Unit, Vector[(Int, Int)], Id, List]
-    val producer = enum1.cross[Int,Int](enum2)
+    val producer = enum1.crossChunked[Int,Int](enum2)
     (consumer &= producer).run(_ => sys.error("...")).flatten must be_===(List(
       (1, 2), (1, 3), (1, 4), (3, 2), (3, 3), (3, 4), (5, 2), (5, 3), (5, 4)
     ))
@@ -95,7 +95,7 @@ class Enumeratee2TTest extends Spec {
     }
 
     val consumer = consume[Unit, Vector[(Int, Int)], Id, List]
-    val producer = joinE[Unit, Int, Int, Id].apply(enum1p, enum2p).apply[Id]
+    val producer = joinEChunked[Unit, Int, Int, Id].apply(enum1p, enum2p).apply[Id]
     (consumer &= producer).run(_ => sys.error("...")).flatten must be_===(List(
       (1, 1), (1, 1), (1, 1)
     ))
