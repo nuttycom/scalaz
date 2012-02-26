@@ -75,8 +75,8 @@ trait EnumeratorT[X, E, F[_]] { self =>
       }
     }
     
-  def cross[A, E2](e2: EnumeratorT[X, Vector[E2], F])(implicit M: Monad[F], evA: E =:= Vector[A]): EnumeratorT[X, Vector[(A, E2)], F] =
-    EnumerateeT.cross[X, A, E2, F](e2) run self.map(evA)
+  def crossChunked[A, E2](e2: EnumeratorT[X, Vector[E2], F])(implicit M: Monad[F], evA: E =:= Vector[A]): EnumeratorT[X, Vector[(A, E2)], F] =
+    EnumerateeT.crossChunked[X, A, E2, F](e2) run self.map(evA)
 }
 
 trait EnumeratorTInstances0 {

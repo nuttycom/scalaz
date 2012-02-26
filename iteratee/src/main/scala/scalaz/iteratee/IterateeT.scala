@@ -204,6 +204,9 @@ final class IterateeT[X, E, F[_], A](final val value: F[StepT[X, E, F, A]]) {
   final def zip[B](other: IterateeT[X, E, F, B])(implicit F: Monad[F]): IterateeT[X, E, F, (A, B)] = {
     cont(zipLoop(this, other))
   }
+
+  def liftI[B](implicit F: Monad[F]): IterateeT[X, B, ({type λ[α] = IterateeT[X, E, F, α] })#λ, A] =
+    IterateeT.IterateeTMonadTrans[X, B].liftM[({type λ[α] = IterateeT[X, E, F, α]})#λ, A](this)
 }
 
 object IterateeT extends IterateeTFunctions with IterateeTInstances {
@@ -345,6 +348,24 @@ trait IterateeTFunctions {
    * An iteratee that skips elements until the predicate evaluates to true.
    */
   def dropUntil[X, E, F[_] : Pointed](p: E => Boolean): IterateeT[X, E, F, Unit] = dropWhile(!p(_))
+
+  /**
+   * An iteratee that consumes at most n elements of the input into something that is PlusEmpty and Pointed.
+   */
+  def take[X, E, F[_]: Monad, A[_]: PlusEmpty : Pointed](n: Int): IterateeT[X, E, F, A[E]] = {
+    import scalaz.syntax.plus._
+    def step(e: Input[E], n: Int): IterateeT[X, E, F, A[E]] = {
+      if (n > 0) {
+        e.fold(empty = cont(step(_: Input[E], n))
+               , el = e => cont(step(_: Input[E], n - 1)).map(a => Pointed[A].point(e) <+> a)
+               , eof = done(PlusEmpty[A].empty, eofInput[E])) 
+      } else {
+        done(PlusEmpty[A].empty, eofInput[E])
+      }
+    }
+
+    cont(step(_: Input[E], n))
+  }
 
   def fold[X, E, F[_] : Pointed, A](init: A)(f: (A, E) => A): IterateeT[X, E, F, A] = {
     def step(acc: A): Input[E] => IterateeT[X, E, F, A] = s =>
