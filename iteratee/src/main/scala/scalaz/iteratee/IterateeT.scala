@@ -18,7 +18,7 @@ import Iteratee._
  * @tparam A The type of the calculated result
  */
 final class IterateeT[X, E, F[_], A](final val value: F[StepT[X, E, F, A]]) {
-  final def foldT[Z](
+  @inline final def foldT[Z](
                 cont: (Input[E] => IterateeT[X, E, F, A]) => F[Z]
                 , done: (=> A, => Input[E]) => F[Z]
                 , err: (=> X) => F[Z]

@@ -29,81 +29,81 @@ sealed trait StepT[X, E, F[_], A] {
                 , err: (=> X) => Z
                 ): Z = fold(cont, done, err)
 
-  def cont: Option[Input[E] => IterateeT[X, E, F, A]] =
+  @inline final def cont: Option[Input[E] => IterateeT[X, E, F, A]] =
     fold(
       Some(_)
       , (_, _) => None
       , _ => None
     )
 
-  def contOr(k: => Input[E] => IterateeT[X, E, F, A]): Input[E] => IterateeT[X, E, F, A] =
+  @inline final def contOr(k: => Input[E] => IterateeT[X, E, F, A]): Input[E] => IterateeT[X, E, F, A] =
     cont getOrElse k
 
-  def mapContOr[Z](k: (Input[E] => IterateeT[X, E, F, A]) => Z, z: => Z): Z =
+  @inline final def mapContOr[Z](k: (Input[E] => IterateeT[X, E, F, A]) => Z, z: => Z): Z =
     fold(
       k(_)
       , (_, _) => z
       , _ => z
     )
 
-  def mapCont(k: (Input[E] => IterateeT[X, E, F, A]) => IterateeT[X, E, F, A])(implicit F: Pointed[F]): IterateeT[X, E, F, A] =
+  @inline final def mapCont(k: (Input[E] => IterateeT[X, E, F, A]) => IterateeT[X, E, F, A])(implicit F: Pointed[F]): IterateeT[X, E, F, A] =
     mapContOr[IterateeT[X, E, F, A]](k, pointI)
 
-  def doneValue: LazyOption[A] =
+  @inline final def doneValue: LazyOption[A] =
     fold(
       _ => LazyOption.lazyNone
       , (a, _) => LazyOption.lazySome(a)
       , _ => LazyOption.lazyNone
     )
 
-  def doneValueOr(a: => A): A =
+  @inline final def doneValueOr(a: => A): A =
     doneValue getOrElse a
 
-  def mapDoneValueOr[Z](k: (=> A) => Z, z: => Z) =
+  @inline final def mapDoneValueOr[Z](k: (=> A) => Z, z: => Z) =
     fold(
       _ => z
       , (a, _) => k(a)
       , _ => z
     )
 
-  def doneInput: LazyOption[Input[E]] =
+  @inline final def doneInput: LazyOption[Input[E]] =
     fold(
       _ => LazyOption.lazyNone
       , (_, i) => LazyOption.lazySome(i)
       , _ => LazyOption.lazyNone
     )
 
-  def doneInputOr(a: => Input[E]): Input[E] =
+  @inline final def doneInputOr(a: => Input[E]): Input[E] =
     doneInput getOrElse a
 
-  def mapDoneInputOr[Z](k: (=> Input[E]) => Z, z: => Z) =
+  @inline final def mapDoneInputOr[Z](k: (=> Input[E]) => Z, z: => Z) =
     fold(
       _ => z
       , (_, i) => k(i)
       , _ => z
     )
 
-  def err: LazyOption[X] =
+  @inline final def err: LazyOption[X] =
     fold(
       _ => LazyOption.lazyNone
       , (_, _) => LazyOption.lazyNone
       , LazyOption.lazySome(_)
     )
 
-  def errOr(x: => X): X =
+  @inline final def errOr(x: => X): X =
     err getOrElse x
 
-  def mapErrOr[Z](k: (=> X) => Z, z: => Z) =
+  @inline final def mapErrOr[Z](k: (=> X) => Z, z: => Z) =
     fold(
       _ => z
       , (_, _) => z
       , k
     )
 
-  def >-[Z](cont: => Z, done: => Z, err: => Z): Z =
+  @inline final def >-[Z](cont: => Z, done: => Z, err: => Z): Z =
     fold(_ => cont, (_, _) => done, _ => err)
 
-  def pointI(implicit P: Pointed[F]): IterateeT[X, E, F, A] =
+  @inline final def pointI(implicit P: Pointed[F]): IterateeT[X, E, F, A] =
     iterateeT(P.point(this))
 }
 
@@ -114,8 +114,8 @@ object StepT extends StepTFunctions with EnumeratorTInstances {
   private[this] val ToNone2: ((=> Any, => Any) => None.type) = (x, y) => None
 
   object Cont {
-    def apply[X, E, F[_], A](c: Input[E] => IterateeT[X, E, F, A]): StepT[X, E, F, A] = new StepT[X, E, F, A] {
-      def fold[Z](
+    @inline final def apply[X, E, F[_], A](c: Input[E] => IterateeT[X, E, F, A]): StepT[X, E, F, A] = new StepT[X, E, F, A] {
+      @inline final def fold[Z](
                    cont: (Input[E] => IterateeT[X, E, F, A]) => Z
                    , done: (=> A, => Input[E]) => Z
                    , err: (=> X) => Z
@@ -127,8 +127,8 @@ object StepT extends StepTFunctions with EnumeratorTInstances {
   }
 
   object Done {
-    def apply[X, E, F[_], A](d: => A, r: => Input[E]) = new StepT[X, E, F, A] {
-      def fold[Z](
+    @inline final def apply[X, E, F[_], A](d: => A, r: => Input[E]) = new StepT[X, E, F, A] {
+      @inline final def fold[Z](
                    cont: (Input[E] => IterateeT[X, E, F, A]) => Z
                    , done: (=> A, => Input[E]) => Z
                    , err: (=> X) => Z
@@ -140,8 +140,8 @@ object StepT extends StepTFunctions with EnumeratorTInstances {
   }
 
   object Err {
-    def apply[X, E, F[_], A](e: => X): StepT[X, E, F, A] = new StepT[X, E, F, A] {
-      def fold[Z](
+    @inline final def apply[X, E, F[_], A](e: => X): StepT[X, E, F, A] = new StepT[X, E, F, A] {
+      @inline final def fold[Z](
                    cont: (Input[E] => IterateeT[X, E, F, A]) => Z
                    , done: (=> A, => Input[E]) => Z
                    , err: (=> X) => Z
@@ -154,7 +154,7 @@ object StepT extends StepTFunctions with EnumeratorTInstances {
 }
 
 trait StepTFunctions {
-  def scont[X, E, F[_], A](c: Input[E] => IterateeT[X, E, F, A]): StepT[X, E, F, A] = StepT.Cont(c)
-  def sdone[X, E, F[_], A](d: => A, r: => Input[E]): StepT[X, E, F, A] = StepT.Done(d, r)
-  def serr[X, E, F[_], A](e: => X): StepT[X, E, F, A] = StepT.Err(e)
+  @inline final def scont[X, E, F[_], A](c: Input[E] => IterateeT[X, E, F, A]): StepT[X, E, F, A] = StepT.Cont(c)
+  @inline final def sdone[X, E, F[_], A](d: => A, r: => Input[E]): StepT[X, E, F, A] = StepT.Done(d, r)
+  @inline final def serr[X, E, F[_], A](e: => X): StepT[X, E, F, A] = StepT.Err(e)
 }
