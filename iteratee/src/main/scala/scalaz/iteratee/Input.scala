@@ -6,7 +6,11 @@ import Iteratee._
 
 /**The input to an iteratee. */
 sealed abstract class Input[+E] private () {
-  def fold[Z](empty: => Z, el: (=> E) => Z, eof: => Z): Z
+  @inline final def fold[Z](empty: => Z, el: (=> E) => Z, eof: => Z): Z = this match {
+    case Input.Empty      => empty
+    case Input.Element(e) => el(e)
+    case Input.Eof        => eof
+  }
 
   @inline final def apply[Z](empty: => Z, el: (=> E) => Z, eof: => Z) =
     fold(empty, el, eof)
@@ -38,9 +42,7 @@ object Input extends InputFunctions with InputInstances {
   def apply[E](e: => E): Input[E] =
     elInput(e)
 
-  case class Element[E](element: E) extends Input[E] {
-    @inline final def fold[Z](empty: => Z, el: (=> E) => Z, eof: => Z): Z = el(element)
-
+   private[iteratee] case class Element[E](element: E) extends Input[E] {
     @inline final val el: Option[E] = Some(element)
 
     @inline final def elOr[B >: E](e: => B): B = element
@@ -66,7 +68,7 @@ object Input extends InputFunctions with InputInstances {
     @inline override final def toString = element.toString
   }
 
-  abstract class NonExistentInput extends Input[Nothing] {
+   private[iteratee] abstract class NonExistentInput extends Input[Nothing] {
     @inline final val el: Option[Nothing] = None
 
     @inline final def elOr[B >: Nothing](e: => B): B = e
@@ -84,9 +86,7 @@ object Input extends InputFunctions with InputInstances {
     @inline final def exists(p: (=> Nothing) => Boolean): Boolean = false
   }
 
-  case object Empty extends NonExistentInput {
-    @inline final def fold[Z](empty: => Z, el: (=> Nothing) => Z, eof: => Z): Z = empty
-
+  private[iteratee] case object Empty extends NonExistentInput {
     @inline final val isEmpty: Boolean = true
 
     @inline final val isEl: Boolean = false
@@ -96,9 +96,7 @@ object Input extends InputFunctions with InputInstances {
     @inline override final def toString = "Empty"
   }
 
-  case object Eof extends NonExistentInput {
-    @inline final def fold[Z](empty: => Z, el: (=> Nothing) => Z, eof: => Z): Z = eof
-
+  private[iteratee] case object Eof extends NonExistentInput {
     @inline final val isEmpty: Boolean = false
 
     @inline final val isEl: Boolean = false
@@ -119,9 +117,9 @@ trait InputInstances {
     def point[A](a: => A): Input[A] = elInput(a)
 
     def traverseImpl[G[_]: Applicative, A, B](fa: Input[A])(f: (A) => G[B]): G[Input[B]] = fa match {
-      case Empty => Applicative[G].point(emptyInput[B])
+      case Empty      => Applicative[G].point(Empty)
       case Element(e) => Applicative[G].map(f(fa.el.get))(b => elInput(b))
-      case Eof => Applicative[G].point(eofInput[B])
+      case Eof        => Applicative[G].point(Eof)
     }
     
     override def foldRight[A, B](fa: Input[A], z: => B)(f: (A, => B) => B): B = fa match {
@@ -177,7 +175,7 @@ trait InputInstances {
 }
 
 trait InputFunctions {
-  def emptyInput[E]: Input[E] = Input.Empty
-  def elInput[E](e: => E): Input[E] = Input.Element(e)
-  def eofInput[E]: Input[E] = Input.Eof
+  @inline final def emptyInput[E]: Input[E] = Input.Empty
+  @inline final def elInput[E](e: => E): Input[E] = Input.Element(e)
+  @inline final def eofInput[E]: Input[E] = Input.Eof
 }

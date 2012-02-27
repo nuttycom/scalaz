@@ -16,11 +16,16 @@ import Iteratee._
  * @tparam A The type of the calculated result
  */
 sealed abstract class StepT[X, E, F[_], A] private () {
-  def fold[Z](
+  @inline final def fold[Z](
     cont: (Input[E] => IterateeT[X, E, F, A]) => Z
     , done: (=> A, => Input[E]) => Z
     , err: (=> X) => Z
-  ): Z
+  ): Z = this match {
+    // TODO: This is ugly because of SI-5359. Fix when we move to 2.10
+    case c: StepT.Cont[X, E, F, A] => cont(c.contf)
+    case d: StepT.Done[X, E, F, A] => done(d.a, d.r)
+    case e: StepT.Err[X, E, F, A]  => err(e.x)
+  }
 
   /** An alias for `fold` */
   @inline final def apply[Z](
@@ -68,13 +73,7 @@ object StepT extends StepTFunctions with EnumeratorTInstances {
   private[this] val ToNone1: (Any => None.type) = x => None
   private[this] val ToNone2: ((=> Any, => Any) => None.type) = (x, y) => None
 
-  case class Cont[X, E, F[_], A](private val contf: Input[E] => IterateeT[X, E, F, A]) extends StepT[X, E, F, A] {
-    @inline final def fold[Z](    
-      cont: (Input[E] => IterateeT[X, E, F, A]) => Z
-      , done: (=> A, => Input[E]) => Z
-      , err: (=> X) => Z
-    ): Z = cont(contf)
-
+  private[iteratee] case class Cont[X, E, F[_], A] (private[iteratee] val contf: Input[E] => IterateeT[X, E, F, A]) extends StepT[X, E, F, A] {
     @inline final val cont = Some(contf)
 
     @inline final def contOr(k: => Input[E] => IterateeT[X, E, F, A]) = contf
@@ -102,24 +101,18 @@ object StepT extends StepTFunctions with EnumeratorTInstances {
     @inline final def >-[Z](cont: => Z, done: => Z, err: => Z): Z = cont
   }
 
-  case class Done[X, E, F[_], A](private val d: A, private val r: Input[E]) extends StepT[X, E, F, A] {
-    @inline final def fold[Z](    
-      cont: (Input[E] => IterateeT[X, E, F, A]) => Z
-      , done: (=> A, => Input[E]) => Z
-      , err: (=> X) => Z
-    ): Z = done(d, r)
-
+  private[iteratee] case class Done[X, E, F[_], A] (private[iteratee] val a: A, private[iteratee] val r: Input[E]) extends StepT[X, E, F, A] {
     @inline final val cont = None
 
     @inline final def contOr(k: => Input[E] => IterateeT[X, E, F, A]) = k
 
     @inline final def mapContOr[Z](k: (Input[E] => IterateeT[X, E, F, A]) => Z, z: => Z): Z = z
 
-    @inline final val doneValue = LazyOption.lazySome(d)
+    @inline final val doneValue = LazyOption.lazySome(a)
 
-    @inline final def doneValueOr(a: => A): A = d
+    @inline final def doneValueOr(a: => A): A = a
 
-    @inline final def mapDoneValueOr[Z](k: (=> A) => Z, z: => Z): Z = k(d)
+    @inline final def mapDoneValueOr[Z](k: (=> A) => Z, z: => Z): Z = k(a)
 
     @inline final val doneInput: LazyOption[Input[E]] = LazyOption.lazySome(r)
 
@@ -136,13 +129,7 @@ object StepT extends StepTFunctions with EnumeratorTInstances {
     @inline final def >-[Z](cont: => Z, done: => Z, err: => Z): Z = done
   }
 
-  case class Err[X, E, F[_], A](private val x: X) extends StepT[X, E, F, A] {
-    @inline final def fold[Z](    
-      cont: (Input[E] => IterateeT[X, E, F, A]) => Z
-      , done: (=> A, => Input[E]) => Z
-      , err: (=> X) => Z
-    ): Z = err(x)
-
+  private[iteratee] case class Err[X, E, F[_], A] (private[iteratee] val x: X) extends StepT[X, E, F, A] {
     @inline final val cont = None
 
     @inline final def contOr(k: => Input[E] => IterateeT[X, E, F, A]) = k
