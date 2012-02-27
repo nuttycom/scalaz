@@ -74,25 +74,25 @@ object StepT extends StepTFunctions with EnumeratorTInstances {
   private[this] val ToNone2: ((=> Any, => Any) => None.type) = (x, y) => None
 
   private[iteratee] case class Cont[X, E, F[_], A] (private[iteratee] val contf: Input[E] => IterateeT[X, E, F, A]) extends StepT[X, E, F, A] {
-    @inline final val cont = Some(contf)
+    @inline final def cont = Some(contf)
 
     @inline final def contOr(k: => Input[E] => IterateeT[X, E, F, A]) = contf
 
     @inline final def mapContOr[Z](k: (Input[E] => IterateeT[X, E, F, A]) => Z, z: => Z): Z = k(contf)
 
-    @inline final val doneValue = LazyOption.lazyNone[A]
+    @inline final def doneValue = LazyOption.lazyNone[A]
 
     @inline final def doneValueOr(a: => A): A = a
 
     @inline final def mapDoneValueOr[Z](k: (=> A) => Z, z: => Z): Z = z
 
-    @inline final val doneInput: LazyOption[Input[E]] = LazyOption.lazyNone[Input[E]]
+    @inline final def doneInput: LazyOption[Input[E]] = LazyOption.lazyNone[Input[E]]
 
     @inline final def doneInputOr(a: => Input[E]): Input[E] = a
 
     @inline final def mapDoneInputOr[Z](k: (=> Input[E]) => Z, z: => Z): Z = z
 
-    @inline final val err: LazyOption[X] = LazyOption.lazyNone[X]
+    @inline final def err: LazyOption[X] = LazyOption.lazyNone[X]
 
     @inline final def errOr(x: => X): X = x
 
@@ -102,25 +102,25 @@ object StepT extends StepTFunctions with EnumeratorTInstances {
   }
 
   private[iteratee] case class Done[X, E, F[_], A] (private[iteratee] val a: A, private[iteratee] val r: Input[E]) extends StepT[X, E, F, A] {
-    @inline final val cont = None
+    @inline final def cont = None
 
     @inline final def contOr(k: => Input[E] => IterateeT[X, E, F, A]) = k
 
     @inline final def mapContOr[Z](k: (Input[E] => IterateeT[X, E, F, A]) => Z, z: => Z): Z = z
 
-    @inline final val doneValue = LazyOption.lazySome(a)
+    @inline final def doneValue = LazyOption.lazySome(a)
 
     @inline final def doneValueOr(a: => A): A = a
 
     @inline final def mapDoneValueOr[Z](k: (=> A) => Z, z: => Z): Z = k(a)
 
-    @inline final val doneInput: LazyOption[Input[E]] = LazyOption.lazySome(r)
+    @inline final def doneInput: LazyOption[Input[E]] = LazyOption.lazySome(r)
 
     @inline final def doneInputOr(a: => Input[E]): Input[E] = r
 
     @inline final def mapDoneInputOr[Z](k: (=> Input[E]) => Z, z: => Z): Z = k(r)
 
-    @inline final val err: LazyOption[X] = LazyOption.lazyNone[X]
+    @inline final def err: LazyOption[X] = LazyOption.lazyNone[X]
 
     @inline final def errOr(x: => X): X = x
 
@@ -130,25 +130,25 @@ object StepT extends StepTFunctions with EnumeratorTInstances {
   }
 
   private[iteratee] case class Err[X, E, F[_], A] (private[iteratee] val x: X) extends StepT[X, E, F, A] {
-    @inline final val cont = None
+    @inline final def cont = None
 
     @inline final def contOr(k: => Input[E] => IterateeT[X, E, F, A]) = k
 
     @inline final def mapContOr[Z](k: (Input[E] => IterateeT[X, E, F, A]) => Z, z: => Z): Z = z
 
-    @inline final val doneValue = LazyOption.lazyNone[A]
+    @inline final def doneValue = LazyOption.lazyNone[A]
 
     @inline final def doneValueOr(a: => A): A = a
 
     @inline final def mapDoneValueOr[Z](k: (=> A) => Z, z: => Z): Z = z
 
-    @inline final val doneInput: LazyOption[Input[E]] = LazyOption.lazyNone[Input[E]]
+    @inline final def doneInput: LazyOption[Input[E]] = LazyOption.lazyNone[Input[E]]
 
     @inline final def doneInputOr(a: => Input[E]): Input[E] = a
 
     @inline final def mapDoneInputOr[Z](k: (=> Input[E]) => Z, z: => Z): Z = z
 
-    @inline final val err: LazyOption[X] = LazyOption.lazySome(x)
+    @inline final def err: LazyOption[X] = LazyOption.lazySome(x)
 
     @inline final def errOr(ox: => X): X = x
 
