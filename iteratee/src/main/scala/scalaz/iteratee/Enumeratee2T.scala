@@ -23,16 +23,16 @@ trait Enumeratee2TChunkedFunctions {
 
   def cogroupIChunked[X, J, K, F[_]](implicit M: Monad[F], order: (J, K) => Ordering, jOrder : Order[J], kOrder: Order[K]): Enumeratee2T[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], F] =
     new Enumeratee2T[X, Vector[J], Vector[K], Vector[Either3[J, (J, K), K]], F] {
-      type Buffer = (Vector[J],Vector[K])
+      type Buffer = (ArrayBuffer[J],ArrayBuffer[K])
       type Result = Either3[J,(J,K),K]
       type ContFunc[A] = Input[Vector[Result]] => IterateeT[X, Vector[Result], F, A]
 
       /* This method is responsible for grouping two chunks up to the point where either is exhausted.
        * If sides are exhausted but no more input is available it will completely use the chunks. */
-      def innerGroup(lBuffer: Vector[J], finalLeft: Boolean, rBuffer: Vector[K], finalRight: Boolean, acc: ArrayBuffer[Result], orderJ: Order[J], orderK: Order[K]): (ArrayBuffer[Result], Option[Buffer]) = {
+      def innerGroup(lBuffer: ArrayBuffer[J], finalLeft: Boolean, rBuffer: ArrayBuffer[K], finalRight: Boolean, acc: ArrayBuffer[Result], orderJ: Order[J], orderK: Order[K]): (ArrayBuffer[Result], Option[Buffer]) = {
         //TODO: Use iterators instead of indexed access into the vector
         // Determine where the lead sequence of identical elements ends
-        def identityPartitionIndex[E](elements: Vector[E], order: Order[E]): Int =
+        def identityPartitionIndex[E](elements: ArrayBuffer[E], order: Order[E]): Int =
           if (elements.length == 0) {
             0
           } else {
@@ -126,7 +126,7 @@ trait Enumeratee2TChunkedFunctions {
 
       def matchOuter[A](s: StepM[A], contf: ContFunc[A], orderJ: Order[J], orderK: Order[K]): PartialFunction[Option[(ArrayBuffer[Result], Option[Buffer])], IterateeT[X, Vector[J], IterateeM, StepM[A]]] = {
         case Some((newChunk,newBuffers)) => {
-          iterateeT[X, Vector[J], IterateeM, StepM[A]](contf(elInput(Vector(newChunk: _*))) >>== (step(_, newBuffers.getOrElse((Vector(), Vector())), orderJ, orderK).value))
+          iterateeT[X, Vector[J], IterateeM, StepM[A]](contf(elInput(Vector(newChunk: _*))) >>== (step(_, newBuffers.getOrElse((ArrayBuffer(), ArrayBuffer())), orderJ, orderK).value))
         }
         case None => done[X, Vector[J], IterateeM, StepM[A]](s, eofInput)
       }
@@ -140,12 +140,12 @@ trait Enumeratee2TChunkedFunctions {
              * 3. Buffer on both sides means read the side that has 1st element == last element */
             buffers match {
               // No buffer on either side means we need a fresh read on both sides
-              case (Vector(), Vector()) => readBoth(s, contf, buffers, orderJ, orderK)
+              case (ArrayBuffer(), ArrayBuffer()) => readBoth(s, contf, buffers, orderJ, orderK)
               // Buffer only on one side means a definite read on the other, and conditional on the existing if b.head == b.last
-              case (Vector(), right) if orderK.equal(right.head, right.last) => readBoth(s, contf, buffers, orderJ, orderK)
-              case (Vector(), right) => readLeft(s, contf, buffers, orderJ, orderK)
-              case (left, Vector())  if orderJ.equal(left.head, left.last)   => readBoth(s, contf, buffers, orderJ, orderK)
-              case (left, Vector()) => readRight(s, contf, buffers, orderJ, orderK)
+              case (ArrayBuffer(), right) if orderK.equal(right.head, right.last) => readBoth(s, contf, buffers, orderJ, orderK)
+              case (ArrayBuffer(), right) => readLeft(s, contf, buffers, orderJ, orderK)
+              case (left, ArrayBuffer())  if orderJ.equal(left.head, left.last)   => readBoth(s, contf, buffers, orderJ, orderK)
+              case (left, ArrayBuffer()) => readRight(s, contf, buffers, orderJ, orderK)
               // Buffer on both sides means conditional on each side having an equivalent series
               case (left, right) if orderJ.equal(left.head, left.last) && orderK.equal(right.head, right.last) => readBoth(s, contf, buffers, orderJ, orderK)
               case (left, _) if orderJ.equal(left.head, left.last) => readLeft(s, contf, buffers, orderJ, orderK)
@@ -158,7 +158,7 @@ trait Enumeratee2TChunkedFunctions {
       }
 
       def apply[A] = {
-        step[A](_, (Vector(),Vector()), jOrder, kOrder)
+        step[A](_, (ArrayBuffer(),ArrayBuffer()), jOrder, kOrder)
       }
     }
 
