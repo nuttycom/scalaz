@@ -15,93 +15,48 @@ import Iteratee._
  *           The type constructor [[scalaz.Id]] is used to model pure computations, and is fixed as such in the type alias [[scalaz.Step]].
  * @tparam A The type of the calculated result
  */
-sealed trait StepT[X, E, F[_], A] {
+sealed abstract class StepT[X, E, F[_], A] private () {
   def fold[Z](
-               cont: (Input[E] => IterateeT[X, E, F, A]) => Z
-               , done: (=> A, => Input[E]) => Z
-               , err: (=> X) => Z
-               ): Z
+    cont: (Input[E] => IterateeT[X, E, F, A]) => Z
+    , done: (=> A, => Input[E]) => Z
+    , err: (=> X) => Z
+  ): Z
 
   /** An alias for `fold` */
-  def apply[Z](
+  @inline final def apply[Z](
                 cont: (Input[E] => IterateeT[X, E, F, A]) => Z
                 , done: (=> A, => Input[E]) => Z
                 , err: (=> X) => Z
                 ): Z = fold(cont, done, err)
 
-  @inline final def cont: Option[Input[E] => IterateeT[X, E, F, A]] =
-    fold(
-      Some(_)
-      , (_, _) => None
-      , _ => None
-    )
+  def cont: Option[Input[E] => IterateeT[X, E, F, A]]
 
-  @inline final def contOr(k: => Input[E] => IterateeT[X, E, F, A]): Input[E] => IterateeT[X, E, F, A] =
-    cont getOrElse k
+  def contOr(k: => Input[E] => IterateeT[X, E, F, A]): Input[E] => IterateeT[X, E, F, A]
 
-  @inline final def mapContOr[Z](k: (Input[E] => IterateeT[X, E, F, A]) => Z, z: => Z): Z =
-    fold(
-      k(_)
-      , (_, _) => z
-      , _ => z
-    )
+  def mapContOr[Z](k: (Input[E] => IterateeT[X, E, F, A]) => Z, z: => Z): Z
 
   @inline final def mapCont(k: (Input[E] => IterateeT[X, E, F, A]) => IterateeT[X, E, F, A])(implicit F: Pointed[F]): IterateeT[X, E, F, A] =
     mapContOr[IterateeT[X, E, F, A]](k, pointI)
 
-  @inline final def doneValue: LazyOption[A] =
-    fold(
-      _ => LazyOption.lazyNone
-      , (a, _) => LazyOption.lazySome(a)
-      , _ => LazyOption.lazyNone
-    )
+  def doneValue: LazyOption[A]
 
-  @inline final def doneValueOr(a: => A): A =
-    doneValue getOrElse a
+  def doneValueOr(a: => A): A
 
-  @inline final def mapDoneValueOr[Z](k: (=> A) => Z, z: => Z) =
-    fold(
-      _ => z
-      , (a, _) => k(a)
-      , _ => z
-    )
+  def mapDoneValueOr[Z](k: (=> A) => Z, z: => Z): Z
 
-  @inline final def doneInput: LazyOption[Input[E]] =
-    fold(
-      _ => LazyOption.lazyNone
-      , (_, i) => LazyOption.lazySome(i)
-      , _ => LazyOption.lazyNone
-    )
+  def doneInput: LazyOption[Input[E]]
 
-  @inline final def doneInputOr(a: => Input[E]): Input[E] =
-    doneInput getOrElse a
+  def doneInputOr(a: => Input[E]): Input[E]
 
-  @inline final def mapDoneInputOr[Z](k: (=> Input[E]) => Z, z: => Z) =
-    fold(
-      _ => z
-      , (_, i) => k(i)
-      , _ => z
-    )
+  def mapDoneInputOr[Z](k: (=> Input[E]) => Z, z: => Z): Z
 
-  @inline final def err: LazyOption[X] =
-    fold(
-      _ => LazyOption.lazyNone
-      , (_, _) => LazyOption.lazyNone
-      , LazyOption.lazySome(_)
-    )
+  def err: LazyOption[X]
 
-  @inline final def errOr(x: => X): X =
-    err getOrElse x
+  def errOr(x: => X): X
 
-  @inline final def mapErrOr[Z](k: (=> X) => Z, z: => Z) =
-    fold(
-      _ => z
-      , (_, _) => z
-      , k
-    )
+  def mapErrOr[Z](k: (=> X) => Z, z: => Z): Z
 
-  @inline final def >-[Z](cont: => Z, done: => Z, err: => Z): Z =
-    fold(_ => cont, (_, _) => done, _ => err)
+  def >-[Z](cont: => Z, done: => Z, err: => Z): Z
 
   @inline final def pointI(implicit P: Pointed[F]): IterateeT[X, E, F, A] =
     iterateeT(P.point(this))
@@ -113,43 +68,106 @@ object StepT extends StepTFunctions with EnumeratorTInstances {
   private[this] val ToNone1: (Any => None.type) = x => None
   private[this] val ToNone2: ((=> Any, => Any) => None.type) = (x, y) => None
 
-  object Cont {
-    @inline final def apply[X, E, F[_], A](c: Input[E] => IterateeT[X, E, F, A]): StepT[X, E, F, A] = new StepT[X, E, F, A] {
-      @inline final def fold[Z](
-                   cont: (Input[E] => IterateeT[X, E, F, A]) => Z
-                   , done: (=> A, => Input[E]) => Z
-                   , err: (=> X) => Z
-                   ) = cont(c)
-    }
+  case class Cont[X, E, F[_], A](private val contf: Input[E] => IterateeT[X, E, F, A]) extends StepT[X, E, F, A] {
+    @inline final def fold[Z](    
+      cont: (Input[E] => IterateeT[X, E, F, A]) => Z
+      , done: (=> A, => Input[E]) => Z
+      , err: (=> X) => Z
+    ): Z = cont(contf)
 
-    def unapply[X, E, F[_], A](s: StepT[X, E, F, A]): Option[Input[E] => IterateeT[X, E, F, A]] =
-      s.fold(f => Some(f), ToNone2, ToNone)
+    @inline final val cont = Some(contf)
+
+    @inline final def contOr(k: => Input[E] => IterateeT[X, E, F, A]) = contf
+
+    @inline final def mapContOr[Z](k: (Input[E] => IterateeT[X, E, F, A]) => Z, z: => Z): Z = k(contf)
+
+    @inline final val doneValue = LazyOption.lazyNone[A]
+
+    @inline final def doneValueOr(a: => A): A = a
+
+    @inline final def mapDoneValueOr[Z](k: (=> A) => Z, z: => Z): Z = z
+
+    @inline final val doneInput: LazyOption[Input[E]] = LazyOption.lazyNone[Input[E]]
+
+    @inline final def doneInputOr(a: => Input[E]): Input[E] = a
+
+    @inline final def mapDoneInputOr[Z](k: (=> Input[E]) => Z, z: => Z): Z = z
+
+    @inline final val err: LazyOption[X] = LazyOption.lazyNone[X]
+
+    @inline final def errOr(x: => X): X = x
+
+    @inline final def mapErrOr[Z](k: (=> X) => Z, z: => Z): Z = z
+
+    @inline final def >-[Z](cont: => Z, done: => Z, err: => Z): Z = cont
   }
 
-  object Done {
-    @inline final def apply[X, E, F[_], A](d: => A, r: => Input[E]) = new StepT[X, E, F, A] {
-      @inline final def fold[Z](
-                   cont: (Input[E] => IterateeT[X, E, F, A]) => Z
-                   , done: (=> A, => Input[E]) => Z
-                   , err: (=> X) => Z
-                   ) = done(d, r)
-    }
+  case class Done[X, E, F[_], A](private val d: A, private val r: Input[E]) extends StepT[X, E, F, A] {
+    @inline final def fold[Z](    
+      cont: (Input[E] => IterateeT[X, E, F, A]) => Z
+      , done: (=> A, => Input[E]) => Z
+      , err: (=> X) => Z
+    ): Z = done(d, r)
 
-    def unapply[X, E, F[_], A](s: StepT[X, E, F, A]): Option[(A, Input[E])] =
-      s.fold(ToNone1, (a, ie) => Some((a, ie)), ToNone)
+    @inline final val cont = None
+
+    @inline final def contOr(k: => Input[E] => IterateeT[X, E, F, A]) = k
+
+    @inline final def mapContOr[Z](k: (Input[E] => IterateeT[X, E, F, A]) => Z, z: => Z): Z = z
+
+    @inline final val doneValue = LazyOption.lazySome(d)
+
+    @inline final def doneValueOr(a: => A): A = d
+
+    @inline final def mapDoneValueOr[Z](k: (=> A) => Z, z: => Z): Z = k(d)
+
+    @inline final val doneInput: LazyOption[Input[E]] = LazyOption.lazySome(r)
+
+    @inline final def doneInputOr(a: => Input[E]): Input[E] = r
+
+    @inline final def mapDoneInputOr[Z](k: (=> Input[E]) => Z, z: => Z): Z = k(r)
+
+    @inline final val err: LazyOption[X] = LazyOption.lazyNone[X]
+
+    @inline final def errOr(x: => X): X = x
+
+    @inline final def mapErrOr[Z](k: (=> X) => Z, z: => Z): Z = z
+
+    @inline final def >-[Z](cont: => Z, done: => Z, err: => Z): Z = done
   }
 
-  object Err {
-    @inline final def apply[X, E, F[_], A](e: => X): StepT[X, E, F, A] = new StepT[X, E, F, A] {
-      @inline final def fold[Z](
-                   cont: (Input[E] => IterateeT[X, E, F, A]) => Z
-                   , done: (=> A, => Input[E]) => Z
-                   , err: (=> X) => Z
-                   ) = err(e)
-    }
+  case class Err[X, E, F[_], A](private val x: X) extends StepT[X, E, F, A] {
+    @inline final def fold[Z](    
+      cont: (Input[E] => IterateeT[X, E, F, A]) => Z
+      , done: (=> A, => Input[E]) => Z
+      , err: (=> X) => Z
+    ): Z = err(x)
 
-    def unapply[X, E, F[_], A](s: StepT[X, E, F, A]): Option[X] =
-      s.fold(ToNone1, ToNone2, Some(_))
+    @inline final val cont = None
+
+    @inline final def contOr(k: => Input[E] => IterateeT[X, E, F, A]) = k
+
+    @inline final def mapContOr[Z](k: (Input[E] => IterateeT[X, E, F, A]) => Z, z: => Z): Z = z
+
+    @inline final val doneValue = LazyOption.lazyNone[A]
+
+    @inline final def doneValueOr(a: => A): A = a
+
+    @inline final def mapDoneValueOr[Z](k: (=> A) => Z, z: => Z): Z = z
+
+    @inline final val doneInput: LazyOption[Input[E]] = LazyOption.lazyNone[Input[E]]
+
+    @inline final def doneInputOr(a: => Input[E]): Input[E] = a
+
+    @inline final def mapDoneInputOr[Z](k: (=> Input[E]) => Z, z: => Z): Z = z
+
+    @inline final val err: LazyOption[X] = LazyOption.lazySome(x)
+
+    @inline final def errOr(ox: => X): X = x
+
+    @inline final def mapErrOr[Z](k: (=> X) => Z, z: => Z): Z = k(x)
+
+    @inline final def >-[Z](cont: => Z, done: => Z, err: => Z): Z = err
   }
 }
 
