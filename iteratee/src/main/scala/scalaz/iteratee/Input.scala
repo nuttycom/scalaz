@@ -5,7 +5,7 @@ import LazyOption._
 import Iteratee._
 
 /**The input to an iteratee. */
-sealed abstract class Input[E] private () {
+sealed abstract class Input[+E] private () {
   def fold[Z](empty: => Z, el: (=> E) => Z, eof: => Z): Z
 
   @inline final def apply[Z](empty: => Z, el: (=> E) => Z, eof: => Z) =
@@ -13,7 +13,7 @@ sealed abstract class Input[E] private () {
 
   def el: Option[E]
 
-  def elOr(e: => E): E
+  def elOr[B >: E](e: => B): B
 
   val isEmpty: Boolean
 
@@ -38,41 +38,12 @@ object Input extends InputFunctions with InputInstances {
   def apply[E](e: => E): Input[E] =
     elInput(e)
 
-  case class Empty[E]() extends Input[E] {
-    @inline final def fold[Z](empty: => Z, el: (=> E) => Z, eof: => Z): Z = empty
-
-    @inline final val el: Option[E] = None
-
-    @inline final def elOr(e: => E) = e
-
-    @inline final val isEmpty: Boolean = true
-
-    @inline final val isEl: Boolean = false
-
-    @inline final val isEof: Boolean = false
-
-    @inline final def map[X](f: (=> E) => X): Input[X] = Empty[X]
-
-    @inline final def flatMap[X](f: (=> E) => Input[X]): Input[X] = Empty[X]
-
-    @inline final def filter(f: (=> E) => Boolean): Input[E] = this
-
-    @inline final def foreach(f: (=> E) => Unit) = ()
-
-    @inline final def forall(p: (=> E) => Boolean): Boolean = true
-
-    @inline final def exists(p: (=> E) => Boolean): Boolean = false
-
-    @inline override final def toString = "Empty"
-  }
-
-
   case class Element[E](element: E) extends Input[E] {
     @inline final def fold[Z](empty: => Z, el: (=> E) => Z, eof: => Z): Z = el(element)
 
     @inline final val el: Option[E] = Some(element)
 
-    @inline final def elOr(e: => E) = element
+    @inline final def elOr[B >: E](e: => B): B = element
 
     @inline final val isEmpty: Boolean = false
 
@@ -84,7 +55,7 @@ object Input extends InputFunctions with InputInstances {
 
     @inline final def flatMap[X](f: (=> E) => Input[X]): Input[X] = f(element)
 
-    @inline final def filter(f: (=> E) => Boolean): Input[E] = if (f(element)) this else Empty[E]
+    @inline final def filter(f: (=> E) => Boolean): Input[E] = if (f(element)) this else Empty
 
     @inline final def foreach(f: (=> E) => Unit) = f(element)
 
@@ -95,30 +66,44 @@ object Input extends InputFunctions with InputInstances {
     @inline override final def toString = element.toString
   }
 
-  case class Eof[E]() extends Input[E] {
-    @inline final def fold[Z](empty: => Z, el: (=> E) => Z, eof: => Z): Z = eof
+  abstract class NonExistentInput extends Input[Nothing] {
+    @inline final val el: Option[Nothing] = None
 
-    @inline final val el: Option[E] = None
+    @inline final def elOr[B >: Nothing](e: => B): B = e
 
-    @inline final def elOr(e: => E) = e
+    @inline final def map[X](f: (=> Nothing) => X): Input[X] = this
+
+    @inline final def flatMap[X](f: (=> Nothing) => Input[X]): Input[X] = this
+
+    @inline final def filter(f: (=> Nothing) => Boolean): Input[Nothing] = this
+
+    @inline final def foreach(f: (=> Nothing) => Unit) = ()
+
+    @inline final def forall(p: (=> Nothing) => Boolean): Boolean = true
+
+    @inline final def exists(p: (=> Nothing) => Boolean): Boolean = false
+  }
+
+  case object Empty extends NonExistentInput {
+    @inline final def fold[Z](empty: => Z, el: (=> Nothing) => Z, eof: => Z): Z = empty
+
+    @inline final val isEmpty: Boolean = true
+
+    @inline final val isEl: Boolean = false
+
+    @inline final val isEof: Boolean = false
+
+    @inline override final def toString = "Empty"
+  }
+
+  case object Eof extends NonExistentInput {
+    @inline final def fold[Z](empty: => Z, el: (=> Nothing) => Z, eof: => Z): Z = eof
 
     @inline final val isEmpty: Boolean = false
 
     @inline final val isEl: Boolean = false
 
     @inline final val isEof: Boolean = true
-
-    @inline final def map[X](f: (=> E) => X): Input[X] = Eof[X]
-
-    @inline final def flatMap[X](f: (=> E) => Input[X]): Input[X] = Eof[X]
-
-    @inline final def filter(f: (=> E) => Boolean): Input[E] = this
-
-    @inline final def foreach(f: (=> E) => Unit) = ()
-
-    @inline final def forall(p: (=> E) => Boolean): Boolean = true
-
-    @inline final def exists(p: (=> E) => Boolean): Boolean = false
 
     @inline override final def toString = "Eof"
   }
@@ -134,9 +119,9 @@ trait InputInstances {
     def point[A](a: => A): Input[A] = elInput(a)
 
     def traverseImpl[G[_]: Applicative, A, B](fa: Input[A])(f: (A) => G[B]): G[Input[B]] = fa match {
-      case Empty() => Applicative[G].point(emptyInput[B])
+      case Empty => Applicative[G].point(emptyInput[B])
       case Element(e) => Applicative[G].map(f(fa.el.get))(b => elInput(b))
-      case Eof() => Applicative[G].point(eofInput[B])
+      case Eof => Applicative[G].point(eofInput[B])
     }
     
     override def foldRight[A, B](fa: Input[A], z: => B)(f: (A, => B) => B): B = fa match {
@@ -192,7 +177,7 @@ trait InputInstances {
 }
 
 trait InputFunctions {
-  def emptyInput[E]: Input[E] = Input.Empty[E]
+  def emptyInput[E]: Input[E] = Input.Empty
   def elInput[E](e: => E): Input[E] = Input.Element(e)
-  def eofInput[E]: Input[E] = Input.Eof[E]
+  def eofInput[E]: Input[E] = Input.Eof
 }
