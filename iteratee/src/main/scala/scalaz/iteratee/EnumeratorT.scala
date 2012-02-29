@@ -111,7 +111,7 @@ trait EnumeratorTFunctions {
       def apply[A] = _.pointI
     }
 
-  def pointErr[X, E, F[_]: Pointed](x: X): EnumeratorT[X, E, F] = 
+  def pointErr[X, E, F[_]: Pointed](x: => X): EnumeratorT[X, E, F] = 
     new EnumeratorT[X, E, F] { 
       def apply[A] = _ => err[X, E, F, A](x)
     }

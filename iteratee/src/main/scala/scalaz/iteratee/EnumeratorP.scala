@@ -103,6 +103,13 @@ trait EnumeratorPFunctions {
     }
   }
 
+  def pointErr[X, E, F[_]](x: => X): EnumeratorP[X, E, F] = new EnumeratorP[X, E, F] {
+    def apply[G[_]](implicit MO: MonadPartialOrder[G, F]) = {
+      import MO._
+      EnumeratorT.pointErr[X, E, G](x)
+    }
+  }
+
   def enumPOne[X, E, F[_]: Monad](e: E) = new EnumeratorP[X, E, F] {
     def apply[G[_]](implicit MO: MonadPartialOrder[G, F]) = {
       import MO._
