@@ -92,9 +92,12 @@ trait ListInstances {
 
   implicit def listOrder[A: Order]: Order[List[A]] = new Order[List[A]] {
     import scalaz.syntax.semigroup._
-    def order(a1: List[A], a2: List[A]): Ordering = {
+    @tailrec def order(a1: List[A], a2: List[A]): Ordering = {
       (a1, a2) match {
-        case (x :: xs, y :: ys) => Order[A].order(x, y) |+| order(xs, ys)
+        case (x :: xs, y :: ys) => Order[A].order(x, y) match {
+          case EQ => order(xs, ys)
+          case neq => neq
+        }
         case (x :: xs, Nil) => GT
         case (Nil, y :: ys) => LT
         case _ => EQ
