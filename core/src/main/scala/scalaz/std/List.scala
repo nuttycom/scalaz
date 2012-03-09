@@ -1,6 +1,7 @@
 package scalaz
 package std
 
+import Ordering._
 import annotation.tailrec
 
 trait ListInstances {
@@ -87,6 +88,18 @@ trait ListInstances {
 
   implicit def listEqual[A: Equal]: Equal[List[A]] = new Equal[List[A]] {
     def equal(a1: List[A], a2: List[A]) = (a1 corresponds a2)(Equal[A].equal)
+  }
+
+  implicit def listOrder[A: Order]: Order[List[A]] = new Order[List[A]] {
+    import scalaz.syntax.semigroup._
+    def order(a1: List[A], a2: List[A]): Ordering = {
+      (a1, a2) match {
+        case (x :: xs, y :: ys) => Order[A].order(x, y) |+| order(xs, ys)
+        case (x :: xs, Nil) => GT
+        case (Nil, y :: ys) => LT
+        case _ => EQ
+      }
+    }
   }
 }
 
