@@ -137,6 +137,19 @@ final class IterateeT[X, E, F[_], A](final val value: F[StepT[X, E, F, A]]) {
     loop(this)
   }
 
+  final def finish[O](implicit M: Monad[F]): IterateeT[X, O, F, A] = {
+    val M0 = IterateeT.IterateeTMonad[X, O, F]
+    def check: StepT[X, E, F, A] => IterateeT[X, O, F, A] = _.fold(
+      cont = k => k(eofInput) >>== {
+        s => s.mapContOr(_ => sys.error("diverging iteratee"), check(s))
+      }
+      , done = (a, _) => M0.point(a)
+      , err = e => err(e)
+    )
+
+    iterateeT(M.bind(value) { s => check(s).value })
+  }
+
   final def up[G[_]](implicit G: Pointed[G], F: Functor[F], FC: CoPointed[F]): IterateeT[X, E, G, A] = {
     mapI(new (F ~> G) {
       def apply[A](a: F[A]) = G.point(FC.copoint(a))
@@ -145,15 +158,7 @@ final class IterateeT[X, E, F[_], A](final val value: F[StepT[X, E, F, A]]) {
 
   final def joinI[I, B](implicit outer: IterateeT[X, E, F, A] =:= IterateeT[X, E, F, StepT[X, I, F, B]], M: Monad[F]): IterateeT[X, E, F, B] = {
     val M0 = IterateeT.IterateeTMonad[X, E, F]
-    def check: StepT[X, I, F, B] => IterateeT[X, E, F, B] = _.fold(
-      cont = k => k(eofInput) >>== {
-        s => s.mapContOr(_ => sys.error("diverging iteratee"), check(s))
-      }
-      , done = (a, _) => M0.point(a)
-      , err = e => err(e)
-    )
-
-    outer(this) flatMap check
+    outer(this) flatMap { _.pointI.finish[E] }
   }
 
   /**
