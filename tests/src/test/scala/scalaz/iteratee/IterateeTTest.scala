@@ -28,11 +28,6 @@ class IterateeTTest extends Spec {
     (nextIter &= enumStream(Stream("hello", "world"))).runOrZero must be_===(List("world", "hello", "1", "2", "3"))
   }
 
-  "map via an enumeratee" in {
-    val iter = sum[Unit, Int, Id] %= EnumerateeT.map[Unit, String, Int, Id]((s: String) => s.toInt)
-    (iter &= enumStream(Stream("1", "2", "3"))).runOrZero must be_===(6)
-  }
-
   "finish" in {
     (sum[Unit, Int, Id] &= enumStream(Stream(1, 2, 3))).finish.value must_== StepT.Done[Unit, Int, Id, Int](6, emptyInput)
   }

@@ -129,13 +129,14 @@ trait EnumerateeTFunctions {
         def step(s: StepT[X, Vector[E], F, A], last: Option[E]): IterateeT[X, Vector[E], F, A] = 
           s mapCont { k => 
             cont { in =>
-              //val inr = in.filter(e => last.forall(l => Order[E].order(e, l) != EQ))
-              val (inr,newLast) = in.fold((emptyInput[Vector[E]], None),
-                                          ve => {
-                                            val uniqued = last.map(l => ve.dropWhile(Order[E].order(l,_) == EQ)).getOrElse(ve).distinct
-                                            (elInput(uniqued), uniqued.lastOption)
-                                          },
-                                          (eofInput[Vector[E]], None))
+              val (inr, newLast) = in.fold(
+                el = ve => {
+                  val uniqued = last.map(l => ve.dropWhile(Order[E].order(l,_) == EQ)).getOrElse(ve).distinct
+                  (elInput(uniqued), uniqued.lastOption.orElse(last))
+                },
+                empty = (emptyInput[Vector[E]], last),
+                eof = (eofInput[Vector[E]], None)
+              )
               k(inr) >>== (step(_, newLast))
             }
           }
