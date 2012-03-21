@@ -3,6 +3,7 @@ package iteratee
 
 import Iteratee._
 import Ordering._
+import scala.annotation.tailrec
 
 trait EnumerateeT[X, O, I, F[_]] { self =>
   def apply[A]: StepT[X, I, F, A] => IterateeT[X, O, F, StepT[X, I, F, A]]
@@ -123,21 +124,39 @@ trait EnumerateeTFunctions {
   /**
    * Uniqueness filter for chunks. Assumes that the input enumerator is already sorted.
    */
-  def uniqChunk[X, E: Order, F[_]: Monad]: EnumerateeT[X, Vector[E], Vector[E], F] = 
+  def uniqChunk[X, E, F[_]](implicit ord: Order[E], M: Monad[F]): EnumerateeT[X, Vector[E], Vector[E], F] = 
     new EnumerateeT[X, Vector[E], Vector[E], F] {
       def apply[A] = {
+        @tailrec def uniq(v: Iterator[E], current: E, acc: Vector[E]): (Vector[E], E) = {
+          if (v.hasNext) {
+            val elem = v.next
+            uniq(v, elem, if (ord.order(current, elem) == EQ) acc else acc :+ elem)
+          } else (acc, current)
+        }
+
         def step(s: StepT[X, Vector[E], F, A], last: Option[E]): IterateeT[X, Vector[E], F, A] = 
           s mapCont { k => 
             cont { in =>
-              val (inr, newLast) = in.fold(
+              in.fold(
                 el = ve => {
-                  val uniqued = last.map(l => ve.dropWhile(Order[E].order(l,_) == EQ)).getOrElse(ve).distinct
-                  (elInput(uniqued), uniqued.lastOption.orElse(last))
+                  val iter = ve.iterator
+                  last match {
+                    case Some(e) => 
+                      val (acc, current) = uniq(iter, e, Vector())
+                      k(elInput(acc)) >>== (step(_, Some(current)))
+
+                    case None if (iter.hasNext) =>
+                      val first = iter.next
+                      val (acc, current) = uniq(iter, first, Vector(first))
+                      k(elInput(acc)) >>== (step(_, Some(current)))
+
+                    case _ => 
+                      k(emptyInput[Vector[E]]) >>== (step(_, last))
+                  }
                 },
-                empty = (emptyInput[Vector[E]], last),
-                eof = (eofInput[Vector[E]], None)
+                empty = k(emptyInput[Vector[E]]) >>== (step(_, last)),
+                eof   = k(eofInput[Vector[E]])
               )
-              k(inr) >>== (step(_, newLast))
             }
           }
 
