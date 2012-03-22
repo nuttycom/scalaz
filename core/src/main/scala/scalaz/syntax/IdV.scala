@@ -7,7 +7,7 @@ import scalaz.{Pointed, Monoid, NonEmptyList}
 trait IdV[A] extends SyntaxV[A] {
   /**Returns `self` if it is non-null, otherwise returns `d`. */
   final def ??(d: => A)(implicit ev: Null <:< A): A =
-    if (self == null) self else d
+    if (self == null) d else self
 
   /**Applies `self` to the provided function */
   final def |>[B](f: A => B): B =
@@ -60,7 +60,6 @@ trait IdV[A] extends SyntaxV[A] {
   def visit[F[_] : Pointed](p: PartialFunction[A, F[A]]): F[A] =
     if (p isDefinedAt self) p(self)
     else Pointed[F].point(self)
-
 }
 
 trait ToIdV {

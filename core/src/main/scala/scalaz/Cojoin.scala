@@ -5,7 +5,7 @@ package scalaz
  *
  */
 ////
-trait CoJoin[F[_]]  { self =>
+trait CoJoin[F[_]] extends Functor[F]  { self =>
   ////
   /** Also known as `duplicate` */
   def cojoin[A](a: F[A]): F[F[A]]

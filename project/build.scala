@@ -13,7 +13,7 @@ object build extends Build {
     organization := "org.scalaz",
     version := "7.0-SNAPSHOT",
     scalaVersion := "2.9.1",
-    scalacOptions ++= Seq("-deprecation", "-unchecked", "-Ydependent-method-types"),
+    scalacOptions <++= (scalaVersion).map((sv: String) => Seq("-deprecation", "-unchecked") ++ (if(sv.contains("2.10")) None else Some("-Ydependent-method-types"))),
     scalacOptions in (Compile, doc) <++= (baseDirectory in LocalProject("scalaz")).map {
       bd => Seq("-sourcepath", bd.getAbsolutePath, "-doc-source-url", "https://github.com/scalaz/scalaz/tree/scalaz-seven€{FILE_PATH}.scala")
     },
@@ -145,10 +145,20 @@ object build extends Build {
     dependencies = Seq(core)
   )
 
+  lazy val xml = Project(
+    id = "xml",
+    base = file("xml"),
+    settings = standardSettings ++ Seq[Sett](
+      name := "scalaz-xml",
+      typeClasses := TypeClass.xml
+    ),
+    dependencies = Seq(core)
+  )
+
   lazy val example = Project(
     id = "example",
     base = file("example"),
-    dependencies = Seq(core, iteratee, concurrent, typelevel),
+    dependencies = Seq(core, iteratee, concurrent, typelevel, xml),
     settings = standardSettings ++ Seq[Sett](
       name := "scalaz-example"
     )

@@ -76,7 +76,7 @@ sealed trait ValidationT[F[_], E, A] {
 }
 
 object ValidationT extends ValidationTFunctions with ValidationTInstances {
-  def apply[F[_], E, A](m: F[Validation[E, A]]) = validationT(m)
+  def apply[F[_], E, A](m: F[Validation[E, A]]): ValidationT[F, E, A] = validationT(m)
 
   sealed trait FailProjectionT[F[_], E, A] {
     self =>
@@ -94,7 +94,7 @@ object ValidationT extends ValidationTFunctions with ValidationTInstances {
     def |[EE >: E](f: => EE)(implicit M: Functor[F]): F[EE] = getOrElse(f)
 
     def pointT[G[_], EE >: E, AA >: A](implicit M: Functor[F], G: Pointed[G]): ValidationT[F, G[EE], AA] =
-      ValidationT(M.map(validationT.run)(_.fail.point))
+      ValidationT(M.map(validationT.run)(_.fail.point[G, EE]))
 
     def exists(f: E => Boolean)(implicit M: Functor[F]): F[Boolean] =
       M.map(validationT.run)(_.fail.exists(f))
@@ -118,7 +118,7 @@ object FailProjectionT extends FailProjectionTFunctions {
 }
 
 trait ValidationTFunctions {
-  def validationT[F[_], E, A](m: F[Validation[E, A]]) = new ValidationT[F, E, A] {
+  def validationT[F[_], E, A](m: F[Validation[E, A]]): ValidationT[F, E, A] = new ValidationT[F, E, A] {
     def run = m
   }
 
