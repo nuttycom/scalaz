@@ -4,7 +4,11 @@ package std
 trait MapInstances {
   import syntax.std.function2._
 
-  implicit def mapInstance[K] = new Traverse[({type F[V] = Map[K,V]})#F] {
+  implicit def mapInstance[K] = new Traverse[({type F[V] = Map[K,V]})#F] with IsEmpty[({type F[V] = Map[K,V]})#F] {
+    def empty[V] = Map.empty[K, V]
+    def plus[V](a: Map[K, V], b: => Map[K, V]) = a ++ b
+    def isEmpty[V](fa: Map[K, V]) = fa.isEmpty
+
     def traverseImpl[G[_],A,B](m: Map[K,A])(f: A => G[B])(implicit G: Applicative[G]): G[Map[K,B]] = {
       import G.functorSyntax._
       list.listInstance.traverseImpl(m.toList)({ case (k, v) => f(v) map (k -> _) }) map (_.toMap)
@@ -14,10 +18,12 @@ trait MapInstances {
   implicit def mapMonoid[K, V: Semigroup]: Monoid[Map[K, V]] = new Monoid[Map[K, V]] {
     def zero = Map[K, V]()
     def append(m1: Map[K, V], m2: => Map[K, V]) = {
-      // semigroups are not commutative, so order may matter. 
+      // Eagerly consume m2 as the value is used more than once.
+      val m2Instance: Map[K, V] = m2
+      // semigroups are not commutative, so order may matter.
       val (from, to, semigroup) = {
-        if (m1.size > m2.size) (m2, m1, Semigroup[V].append(_: V, _: V))
-        else (m1, m2, (Semigroup[V].append(_: V, _: V)).flip)
+        if (m1.size > m2Instance.size) (m2Instance, m1, Semigroup[V].append(_: V, _: V))
+        else (m1, m2Instance, (Semigroup[V].append(_: V, _: V)).flip)
       }
 
       from.foldLeft(to) {
@@ -26,11 +32,13 @@ trait MapInstances {
     }
   }
 
+  // this is totally fucking wrong
   implicit def mapOrder[K: Order, V: Order]: Order[Map[K, V]] = new Order[Map[K, V]] {
     def order(x: Map[K, V], y: Map[K, V]): Ordering = {
       import list._
       import tuple._
-      Order[List[(K, V)]].order(x.toList, y.toList)
+      implicit val ok = implicitly[Order[K]].toScalaOrdering
+      Order[List[(K, V)]].order(x.toList.sortBy(_._1), y.toList.sortBy(_._1))
     }
   }
 

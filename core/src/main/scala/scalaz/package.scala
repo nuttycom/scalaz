@@ -1,4 +1,3 @@
-
 /**
  * '''Scalaz''': Type classes and pure functional data structures for Scala.
  *
@@ -97,14 +96,14 @@ package object scalaz {
   type ⊥ = Nothing
   type ⊤ = Any
 
-  type |>=|[G[_], F[_]] = MonadPartialOrder[G, F] 
+  type |>=|[G[_], F[_]] = MonadPartialOrder[G, F]
 
-  type ReaderT[F[+_], E, A] = Kleisli[F, E, A]
+  type ReaderT[F[+_], E, +A] = Kleisli[F, E, A]
   type =?>[E, A] = Kleisli[Option, E, A]
-  type Reader[E, A] = ReaderT[Id, E, A]
+  type Reader[E, +A] = ReaderT[Id, E, A]
 
   type Writer[+W, +A] = WriterT[Id, W, A]
-  type Unwriter[W, A] = UnwriterT[Id, W, A]
+  type Unwriter[+W, +A] = UnwriterT[Id, W, A]
 
   object Reader {
     def apply[E, A](f: E => A): Reader[E, A] = Kleisli[Id, E, A](f)

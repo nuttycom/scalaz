@@ -1,7 +1,7 @@
 package scalaz
 package typelevel
 
-import syntax.HLists._
+import syntax.typelevel.hlist._
 
 /**
  * A type class abstracting over the `product` operation of type classes over

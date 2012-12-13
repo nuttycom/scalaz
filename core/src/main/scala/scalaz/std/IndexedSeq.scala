@@ -1,7 +1,9 @@
 package scalaz
 package std
 
+import scalaz.Id._
 import annotation.tailrec
+import collection.immutable.IndexedSeq
 import collection.IndexedSeqLike
 import collection.generic.{CanBuildFrom, GenericTraversableTemplate}
 
@@ -38,7 +40,7 @@ trait IndexedSeqInstances extends IndexedSeqInstances0 {
 }
 
 trait IndexedSeqSubInstances extends IndexedSeqInstances0 with IndexedSeqSub {self =>
-  val ixSqInstance = new Traverse[IxSq] with MonadPlus[IxSq] with Each[IxSq] with Index[IxSq] with Length[IxSq] with ApplicativePlus[IxSq] with Zip[IxSq] with Unzip[IxSq] {
+  val ixSqInstance = new Traverse[IxSq] with MonadPlus[IxSq] with Each[IxSq] with Index[IxSq] with Length[IxSq] with Zip[IxSq] with Unzip[IxSq] with IsEmpty[IxSq] {
     def each[A](fa: IxSq[A])(f: (A) => Unit) = fa foreach f
     def index[A](fa: IxSq[A], i: Int) = if (fa.size > i) Some(fa(i)) else None
     def length[A](fa: IxSq[A]) = fa.length
@@ -46,6 +48,7 @@ trait IndexedSeqSubInstances extends IndexedSeqInstances0 with IndexedSeqSub {se
     def bind[A, B](fa: IxSq[A])(f: A => IxSq[B]) = fa flatMap f
     def empty[A] = self.empty[A]
     def plus[A](a: IxSq[A], b: => IxSq[A]) = a ++ b
+    def isEmpty[A](a: IxSq[A]) = a.isEmpty
     override def map[A, B](v: IxSq[A])(f: A => B) = v map f
 
     def zip[A, B](a: => IxSq[A], b: => IxSq[B]) = a zip b
@@ -53,7 +56,7 @@ trait IndexedSeqSubInstances extends IndexedSeqInstances0 with IndexedSeqSub {se
 
     def traverseImpl[F[_], A, B](v: IxSq[A])(f: A => F[B])(implicit F: Applicative[F]) = {
       DList.fromList(v.toList).foldr(F.point(empty[B])) {
-         (a, fbs) => F(f(a), fbs)(_ +: _)
+         (a, fbs) => F.apply2(f(a), fbs)(_ +: _)
       }
     }
 
@@ -168,6 +171,9 @@ trait IndexedSeqSubFunctions extends IndexedSeqSub {
         case (x, y) =>
           Monad[M].map(groupByM(y)(p))((g: IxSq[IxSq[A]]) => (as.head +: x) +: g)
       }
+
+  final def groupWhen[A](as: IxSq[A])(p: (A, A) => Boolean): IxSq[IxSq[A]] =
+    groupByM(as)((a1: A, a2: A) => p(a1, a2): Id[Boolean])
 
   final def mapAccumLeft[A, B, C](as: IxSq[A])(c: C, f: (C, A) => (C, B)): (C, IxSq[B]) =
     if (as.isEmpty) (c, empty) else {
