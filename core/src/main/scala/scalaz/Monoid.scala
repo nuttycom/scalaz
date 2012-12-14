@@ -69,7 +69,10 @@ object Monoid extends MonoidInstances with MonoidFunctions {
 
 trait MonoidFunctions {
   def ifEmpty[A, B](a: A)(t: => B)(f: => B)(implicit m: Monoid[A], eq: Equal[A]): B =
-    if (eq.equal(a, m.zero)) { t } else { f }
+    if (isMZero(a)) { t } else { f }
+
+  def isMZero[A](a: A)(implicit m: Monoid[A], eq: Equal[A]): Boolean =
+    eq.equal(a, m.zero)
 
   def onNotEmpty[A,B](a: A)(v: => B)(implicit m: Monoid[A], eq: Equal[A], mb: Monoid[B]): B =
     ifEmpty(a)(mb.zero)(v)
@@ -109,6 +112,12 @@ trait MonoidInstances {
   def liftMonoid[F[_], M](implicit F0: Applicative[F], M0: Monoid[M]): Monoid[F[M]] = new ApplicativeMonoid[F, M] {
     implicit def F: Applicative[F] = F0
     implicit def M: Monoid[M] = M0
+  }
+
+  def liftPlusEmpty[A](implicit M0: Monoid[A]): PlusEmpty[({ type λ[α] = A })#λ] = new PlusEmpty[({ type λ[α] = A })#λ] {
+    type A0[α] = A
+    def empty[A]: A0[A] = M0.zero
+    def plus[A](f1: A0[A], f2: => A0[A]): A0[A] = M0.append(f1, f2)
   }
 
   ////

@@ -189,6 +189,16 @@ trait BooleanOps extends Ops[Boolean] {
   final def when(f: => Unit) = b.when(self)(f)
 
   /**
+   * Returns the given argument if `cond` is `false`, otherwise, unit lifted into M.
+   */
+  final def unlessM[M[_]: Applicative, A](f: => M[A]): M[Unit] = b.unlessM(self)(f)
+
+  /**
+   * Returns the given argument if `cond` is true`, otherwise, unit lifted into M.
+   */
+  final def whenM[M[_]: Applicative, A](f: => M[A]): M[Unit] = b.whenM(self)(f)
+
+  /**
    * @return `t` if true, `f` otherwise
    */
   final def fold[A](t: => A, f: => A): A = b.fold(self, t, f)
@@ -205,12 +215,12 @@ trait BooleanOps extends Ops[Boolean] {
   }
 
   /**
-   * Returns the given argument in `Some` if this is `lazySome`, `lazySome` otherwise.
+   * Returns the given argument in `Some` if this is `true`, `None` otherwise.
    */
   final def option[A](a: => A): Option[A] = b.option(self, a)
 
   /**
-   * Returns the given argument in `lazySome` if this is `Left`, `Left` otherwise.
+   * Returns the given argument in `LazySome` if this is `true`, `LazyNone` otherwise.
    */
   final def lazyOption[A](a: => A): LazyOption[A] = LazyOption.condLazyOption(self, a)
 
@@ -219,7 +229,7 @@ trait BooleanOps extends Ops[Boolean] {
   }
 
   /**
-   * Returns the first argument in `Left` if this is `Right`, otherwise the second argument in
+   * Returns the first argument in `Left` if this is `true`, otherwise the second argument in
    * `Right`.
    */
   final def either[A, B](a: => A) = new ConditionalEither[A] {

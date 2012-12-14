@@ -1,6 +1,8 @@
 package scalaz
-package typelevel
 package syntax
+package typelevel
+
+import scalaz.typelevel._
 
 final class TCOps[C[_], T <: HList](typeClass: TypeClass[C], instance: C[T]) {
   def *:[F](F: C[F]): C[HCons[F, T]] = typeClass.product(F, instance)
@@ -29,13 +31,16 @@ trait TypeClasses extends TypeClasses0 {
   implicit def unpackKProduct[C[_[_]], T <: TCList](wrapper: WrappedProduct[C, T]) =
     wrapper.instance
 
+  implicit def unpackKComposition[C[_[_]], T <: TCList](wrapper: WrappedComposition[C, T]) =
+    wrapper.instance
+
   // Instance syntax
 
   implicit def wrapKProduct[C[_[_]] : KTypeClass, F[_]](instance: C[F]) =
     instance *: KTypeClass[C].emptyProduct
 
+  implicit def wrapKComposition[C[_[_]] : KTypeClass, F[_]](instance: C[F]) =
+    instance <<: KTypeClass[C].idCompose
 }
-
-object TypeClasses extends TypeClasses
 
 // vim: expandtab:ts=2:sw=2

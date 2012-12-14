@@ -1,6 +1,8 @@
 package scalaz
-package typelevel
 package syntax
+package typelevel
+
+import scalaz.typelevel.{HList, HCons}
 
 trait HLists {
 
@@ -8,7 +10,5 @@ trait HLists {
   def :: = HCons
 
 }
-
-object HLists extends HLists
 
 // vim: expandtab:ts=2:sw=2

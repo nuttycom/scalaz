@@ -100,9 +100,9 @@ sealed trait Validation[+E, +A] {
     }
 
   /** Binary functor traverse on this validation. */
-  def bitraverse[G[+_] : Applicative, C, D](f: E => G[C], g: A => G[D]): G[Validation[C, D]] = this match {
-    case Failure(a) => Applicative[G].map(f(a))(Failure(_))
-    case Success(b) => Applicative[G].map(g(b))(Success(_))
+  def bitraverse[G[+_] : Functor, C, D](f: E => G[C], g: A => G[D]): G[Validation[C, D]] = this match {
+    case Failure(a) => Functor[G].map(f(a))(Failure(_))
+    case Success(b) => Functor[G].map(g(b))(Success(_))
   }
 
   /** Map on the success of this validation. */
@@ -433,7 +433,7 @@ trait ValidationFunctions {
   def success[E, A]: A => Validation[E, A] =
     Success(_)
 
-  /** Construct a success failure value. */
+  /** Construct a failure validation value. */
   def failure[E, A]: E => Validation[E, A] =
     Failure(_)
 

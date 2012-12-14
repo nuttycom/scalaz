@@ -2,6 +2,7 @@ package scalaz
 package syntax
 package std
 
+import collection.immutable.IndexedSeq
 import scalaz.std.{indexedSeq => v}
 
 trait IndexedSeqOps[A] extends Ops[IndexedSeq[A]] {
@@ -35,6 +36,8 @@ trait IndexedSeqOps[A] extends Ops[IndexedSeq[A]] {
   final def breakM[M[_] : Monad](p: A => M[Boolean]): M[(IndexedSeq[A], IndexedSeq[A])] = v.breakM(self)(p)
 
   final def groupByM[M[_] : Monad](p: (A, A) => M[Boolean]): M[IndexedSeq[IndexedSeq[A]]] = v.groupByM(self)(p)
+
+  final def groupWhen(p: (A, A) => Boolean): IndexedSeq[IndexedSeq[A]] = v.groupWhen(self)(p)
 
   final def mapAccumLeft[B, C](c: C, f: (C, A) => (C, B)): (C, IndexedSeq[B]) = v.mapAccumLeft(self)(c, f)
 
