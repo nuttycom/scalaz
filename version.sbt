@@ -1,2 +1,1 @@
-
-version in ThisBuild := "7.0-precog-M1.1"
+version in ThisBuild := "7.0-SNAPSHOT"
